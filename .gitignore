@@ -1,0 +1,14 @@
+node_modules/
+dist/
+.vite/
+.pytest_cache/
+__pycache__/
+*.pyc
+.venv/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+src-tauri/target/
+

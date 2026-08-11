@@ -1,0 +1,14 @@
+{
+  "name": "machinglearing-gui",
+  "version": "0.1.0",
+  "private": true,
+  "author": "Kuroneko",
+  "packageManager": "pnpm@10.14.0",
+  "scripts": {
+    "dev": "pnpm --filter @ml-gui/web dev",
+    "build": "pnpm --filter @ml-gui/contracts build && pnpm --filter @ml-gui/web build",
+    "typecheck": "pnpm --filter @ml-gui/contracts typecheck && pnpm --filter @ml-gui/web typecheck",
+    "test": "pnpm --filter @ml-gui/web test"
+  }
+}
+
