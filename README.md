@@ -187,3 +187,290 @@ CSV 解析还需要检测分隔符、引号字符、换行类型和表头行。�
 
 ZIP 文件名可能使用 UTF-8、CP437 或本地代码页。解压模块必须读取 ZIP 标志位，并为无法可靠判断的文件名提供解压预览。禁止把乱码文件名直接写入最终项目资产。
 
+## 核心数据模型和必要耦合
+
+项目不追求模块完全独立。解析、数据集、训练、预测、报告和 OpenClaw 工具必须围绕统一的 Project, Asset, Job 和 Artifact 数据模型协同工作，这属于必要耦合。
+
+- Project 表示一个完整工作空间。
+- Asset 表示用户导入的原始文件或外部资源。
+- Artifact 表示解析、转换、训练或导出的产物。
+- DatasetVersion 表示不可变的数据集版本。
+- DocumentVersion 表示不可变的文档解析版本。
+- ModelRun 表示一次可复现的训练执行。
+- Job 表示一个可排队、可取消、可追踪的执行任务。
+- ToolDefinition 表示可被 GUI 或 OpenClaw 调用的受控能力。
+
+所有模块共享以上标识和状态定义，但解析器、训练器和导出器不得直接依赖 React 组件、Tauri 窗口或 OpenClaw 内部对象。界面通过 Workspace Client Contract 调用任务服务，任务服务通过 ToolDefinition 调度具体实现。
+
+## 工具契约
+
+左侧工具栏中的每个工具都必须声明以下内容。
+
+- tool_id: 稳定工具标识。
+- name: 中文显示名称。
+- input_types: 允许输入的资产类型。
+- output_types: 可能产生的 Artifact 类型。
+- parameter_schema: 用于生成参数表单的结构定义。
+- execution_target: local, cloud 或 both。
+- permission_level: read, create, modify, external 或 compute。
+- implementation_version: 实现版本。
+- timeout_policy: 超时和取消策略。
+- error_types: 可能返回的公开错误类型。
+
+工具结果必须返回结构化数据，不允许只返回日志字符串。日志用于诊断，Artifact 用于后续业务流程。
+
+第一阶段工具包括以下内容。
+
+1. 导入文件。
+2. 解压文件。
+3. 解析 CSV。
+4. 解析 XLSX。
+5. 解析 PDF。
+6. 数据剖析。
+7. 数据清洗。
+8. 配置分类任务。
+9. 配置回归任务。
+10. 训练模型。
+11. 批量预测。
+12. 导出数据。
+13. 生成模型报告。
+14. 查询项目上下文。
+
+## 导入和解压流程
+
+文件导入按以下顺序执行。
+
+1. 复制原始文件到 source 目录。
+2. 计算 SHA-256 内容哈希并记录来源信息。
+3. 根据文件签名和扩展名判断实际格式。
+4. 如果是压缩文件，创建独立 extracted 子目录并解压。
+5. 对解压文件重新执行格式检测，支持压缩包内嵌套压缩文件，但限制最大嵌套层数。
+6. 对每个文件建立 Asset 记录并关联父压缩文件。
+7. 根据文件类型进入表格、文档、图片或未知文件流程。
+
+解压是必须保留的真实安全边界。需要防止路径穿越、覆盖已有文件、符号链接逃逸、异常压缩比和超大文件。此处允许必要的防御性代码，并返回 ArchiveExtractionError。普通内部函数不重复进行无意义的空值和类型检查。
+
+## XLSX 和表格解析设计
+
+XLSX 不能只按文本文件处理。导入后先读取工作簿结构，再由用户确认用于分析的 Sheet、表头行和数据区域。
+
+解析结果需要包含以下内容。
+
+- Sheet 名称和顺序。
+- 使用区域和隐藏状态。
+- 表头候选行。
+- 字段名称、推断类型和示例值。
+- 空值、重复值和唯一值统计。
+- 公式单元格、合并单元格和错误单元格信息。
+- 日期、货币、百分比和本地化数字格式。
+- 数据量和预计内存占用。
+
+普通 XLSX 元数据和兼容处理使用 openpyxl。大规模表格读取优先评估 Polars 和基于 Rust 的读取实现。转换后的标准数据集保存为 Parquet，原始工作簿保持不变。
+
+公式默认读取文件中保存的计算结果，不在第一版中实现完整 Excel 公式引擎。包含宏的 xlsm 文件只能作为受限输入处理，不执行宏。旧版 xls 通过专用转换器读取，并在界面中标记转换来源。
+
+## PDF 和文档解析设计
+
+PDF 主解析器规划使用 Docling，用于页面布局、阅读顺序、表格、公式、图片和 OCR。MarkItDown 可以作为生成 LLM 文本上下文的轻量转换器，但不能替代页面坐标和结构化表格结果。
+
+PDF 解析产物包括以下内容。
+
+- 文档级元数据。
+- 页级文本和坐标。
+- 标题层级和段落。
+- 表格结构和单元格。
+- 图片和图片说明。
+- OCR 置信度。
+- Markdown 表示。
+- 结构化 JSON 表示。
+- 原文页码引用。
+
+从 PDF 提取的表格先创建 TableCandidate，不直接成为训练数据集。用户需要在预览中确认表头、跨页合并、空单元格和字段类型，确认后才生成 DatasetVersion。
+
+扫描 PDF 的 OCR 是可选高成本步骤。界面需要显示预计页数、执行设备和任务进度。解析失败时保留已经成功的页级结果，并输出 DocumentParseError 和失败页码。
+
+## 数据集和机器学习流程
+
+机器学习第一版聚焦结构化表格分类和回归，不在首版同时实现时间序列、图像训练、文本微调和大型深度学习训练。
+
+标准流程如下。
+
+1. 选择 DatasetVersion。
+2. 选择目标列。
+3. 判断分类或回归任务。
+4. 检查字段类型、空值、常量列、重复列和疑似标识列。
+5. 配置训练集、验证集和测试集划分。
+6. 配置数值、类别、日期和文本字段处理。
+7. 选择候选算法和评价指标。
+8. 运行训练任务。
+9. 保存预处理流水线、模型、指标、参数、随机种子和依赖版本。
+10. 展示结果并允许生成预测文件。
+
+需要显式提示但不自动隐藏处理的风险包括目标泄漏、类别不平衡、时间顺序破坏、样本量过小、目标列缺失和训练测试重复。用户确认后的配置保存为 TrainingSpec。
+
+传统模型优先包含 Logistic Regression, Random Forest, HistGradientBoosting 和适用的线性回归模型。PyTorch 第一阶段用于后续扩展和可选神经网络模型，不应成为普通表格任务的强制依赖路径。
+
+## OpenClaw 对话窗口设计
+
+OpenClaw 是可选对话和任务编排连接器，不是项目数据和任务状态的唯一来源。即使 OpenClaw 未安装或连接失败，文件导入、解析、训练和导出仍然必须可用。
+
+桌面端连接本机 OpenClaw Gateway，并把流式消息转换为统一 ChatEvent。GUI 不直接依赖 Gateway 原始消息格式，OpenClawConnector 负责连接、认证、重连、会话和消息转换。
+
+允许提供给 OpenClaw 的应用工具包括以下内容。
+
+- project_get_summary
+- asset_list
+- dataset_get_profile
+- document_search
+- training_create_plan
+- job_get_status
+- model_get_metrics
+- artifact_create_export_request
+
+OpenClaw 不获得通用文件系统、任意路径读取、任意 Shell 或数据库连接权限。工具参数使用 project_id, asset_id, dataset_version_id 和 model_run_id，不接受未经限制的绝对路径。
+
+只读查询可以直接执行。创建数据集版本、启动训练、覆盖导出文件、上传云端和调用付费模型必须先生成计划，并进入 waiting_confirmation 状态。用户确认后由应用任务服务执行，不由聊天界面绕过任务系统。
+
+发送给模型的上下文需要显示来源范围。默认只发送用户当前选择的资产摘要、字段定义、统计结果和必要片段。原始完整表格、完整 PDF 和敏感字段只有在用户明确允许后才能发送到外部模型。
+
+## 本地和云端切换
+
+Workspace Client Contract 对界面提供相同方法，底层实现分为 LocalWorkspaceClient 和 RemoteWorkspaceClient。
+
+LocalWorkspaceClient 连接本机 Python Task Service，文件保存在本地项目目录，凭据保存在操作系统安全存储中。RemoteWorkspaceClient 连接云端 API，文件保存在对象存储，元数据保存在关系数据库，训练任务进入云端队列。
+
+云端迁移需要增加以下能力。
+
+- 用户和组织账号。
+- 项目权限和成员角色。
+- 分片上传、断点续传和内容哈希去重。
+- 对象存储和生命周期管理。
+- Worker 容器和资源配额。
+- 每用户或每租户隔离的 OpenClaw 运行边界。
+- API 限流、任务计费和用量记录。
+- 审计日志和数据删除流程。
+
+本地版不提前实现全部云端设施，但 Project, Asset, Job, Artifact 和 ToolDefinition 的标识格式从第一版开始保持可迁移。
+
+## 错误类型和错误信息
+
+公开边界使用稳定错误类型，内部实现不滥用异常包装。第一阶段错误类型如下。
+
+- FileAccessError: 文件不存在、权限不足或文件被占用。
+- UnsupportedFileFormatError: 文件格式不受支持或扩展名与签名冲突。
+- FileEncodingError: 文本编码无法可靠识别或解码失败。
+- ArchiveExtractionError: 解压失败、路径非法或资源限制触发。
+- SpreadsheetParseError: 工作簿、Sheet 或单元格解析失败。
+- DocumentParseError: PDF、OCR 或文档结构解析失败。
+- DatasetSchemaError: 字段、类型或表头配置无效。
+- TrainingConfigurationError: 目标列、数据划分或参数无效。
+- ComputeDeviceError: CPU、CUDA、显卡架构或显存不满足要求。
+- ModelTrainingError: 模型拟合、评估或保存失败。
+- ExportError: 输出路径、编码或格式写入失败。
+- OpenClawConnectionError: Gateway 连接、认证或协议失败。
+- PermissionDeniedError: 用户未批准需要确认的操作。
+- InternalTaskError: 未归类的任务内部错误。
+
+错误响应至少包含 error_type, message, operation, recoverable 和 details。界面显示简洁中文信息，详细技术信息保存在任务详情和日志中。错误信息禁止只写 failed, unknown error 或解析失败等无法定位问题的内容。
+
+## 中文说明和英文 comment 规范
+
+本 README 使用中文详细说明业务流程、边界条件、数据结构和实现原因。后续源代码中的 comment 使用英文，便于工具链、静态检查和跨语言协作。
+
+英文 comment 只用于解释以下内容。
+
+- 不直观的算法选择。
+- 第三方库限制。
+- 安全边界。
+- 性能优化原因。
+- 平台差异。
+- 无法通过类型和函数名称表达的约束。
+
+禁止使用逐行翻译代码行为的无效 comment。公开 API、配置项和错误类型需要中文文档说明，源代码实现位置保留简洁英文 comment。
+
+## 测试要求
+
+测试分为单元测试、契约测试、集成测试、GUI 测试和打包测试。
+
+- 单元测试覆盖编码判断、文件签名、解压路径、字段推断和指标计算。
+- 契约测试确保 LocalWorkspaceClient 和 RemoteWorkspaceClient 返回相同结构。
+- 集成测试覆盖导入、解压、解析、数据集生成、训练和导出闭环。
+- GUI 测试覆盖面板调整、长文件名、中文文本、高 DPI、加载状态和错误状态。
+- 打包测试在未安装 Python、Node.js 和开发工具的 Windows 环境中启动安装包。
+- 大文件测试覆盖多 Sheet XLSX、大型 CSV、扫描 PDF 和嵌套压缩包。
+- 乱码测试覆盖 UTF-8, UTF-8 BOM, UTF-16, GB18030 和 ZIP 中文文件名。
+- GPU 测试记录 PyTorch、CUDA、驱动、设备名称和计算架构。
+
+## Windows 打包和发布
+
+第一版以 Windows x64 为主要目标。React 前端构建后嵌入 Tauri，Python Task Service 和必要 Worker 使用 PyInstaller 或等效工具打包为 sidecar。
+
+安装包需要包含以下内容。
+
+- Tauri 桌面应用。
+- Python sidecar。
+- 必要的解析和机器学习依赖。
+- 默认配置和数据库迁移文件。
+- 第三方许可证和 NOTICE 文件。
+- 卸载程序。
+
+模型权重、OCR 权重和大型 CUDA 依赖不应全部无条件塞入基础安装包。需要划分基础组件和可选运行组件，并在设置中显示下载大小、版本和安装位置。
+
+正式分发需要 Windows 代码签名、版本号、安装日志、崩溃日志导出和升级策略。便携版可以用于内部测试，面向普通用户优先提供安装程序。
+
+## Git 开发规则
+
+每个可验证步骤完成后执行一次提交并推送到以下仓库。
+
+https://github.com/zzz-sudo/MachingLearing-GUI.git
+
+提交应保持单一目的，例如项目骨架、文件导入、XLSX 解析、PDF 解析、模型训练、OpenClaw 连接、GUI 调整和打包配置分别提交。提交前需要执行格式检查、相关测试和 git diff 检查。
+
+不得在提交中加入临时数据、真实用户文件、模型密钥、OpenClaw 凭据、构建缓存和大型模型权重。第三方代码必须记录来源、许可证和修改范围。
+
+## 实施阶段
+
+### 阶段一: 工作台基础
+
+建立 React, TypeScript, Tauri 和 Python Task Service 骨架，实现项目创建、项目打开、统一任务状态、日志和基础三栏布局。
+
+### 阶段二: 文件和数据
+
+实现文件导入、压缩文件解压、编码确认、CSV 和 XLSX 解析、数据预览、字段定义和 Parquet 数据集版本。
+
+### 阶段三: PDF 和文档
+
+接入 Docling，完成 PDF 文本、页面、表格、OCR、Markdown、JSON 和 TableCandidate 预览确认。
+
+### 阶段四: 机器学习闭环
+
+完成分类和回归配置、预处理、训练、评估、模型保存、批量预测和结果导出。
+
+### 阶段五: OpenClaw
+
+实现 OpenClawConnector、对话 Dock、只读工具、计划确认和受控任务调用。先保证只读和计划流程稳定，再开放训练和外部服务调用。
+
+### 阶段六: Web 和云端准备
+
+验证浏览器运行方式，完成 Workspace Client Contract 双实现，并设计账号、上传、对象存储、任务队列和租户隔离。
+
+### 阶段七: 发布
+
+完成 Windows 安装程序、代码签名、升级、许可证清单、无开发环境启动测试和高 DPI GUI 检查。
+
+## 第一版验收闭环
+
+第一版以一个明确流程作为验收目标。
+
+1. 用户创建项目。
+2. 用户导入包含中文字段的 XLSX 或 ZIP。
+3. 应用正确解压并显示无乱码文件名。
+4. 用户选择 Sheet、表头和目标列。
+5. 应用生成数据剖析结果和 DatasetVersion。
+6. 用户配置分类或回归任务。
+7. 应用在本地 Worker 中训练并显示进度。
+8. 应用展示指标、参数和模型文件。
+9. 用户通过 OpenClaw 询问结果解释。
+10. OpenClaw 使用受控工具读取指标，不直接访问任意文件。
+11. 用户导出预测 XLSX，中文字段和内容保持正确编码。
+12. 关闭并重新打开应用后，项目、任务、模型和结果仍可恢复。
