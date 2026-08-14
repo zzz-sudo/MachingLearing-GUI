@@ -9,12 +9,15 @@ from uuid import uuid4
 from app.errors import file_access_error, job_not_found, project_not_found
 from app.models import (
     AssetRecord,
+    DatasetColumnSpec,
+    DatasetVersion,
     JobCreate,
     JobRecord,
     JobStatus,
     JobUpdate,
     ProjectCreate,
     ProjectRecord,
+    TablePreview,
 )
 
 PROJECT_DIRECTORIES = (
@@ -83,6 +86,27 @@ class WorkspaceStore:
 
                 CREATE INDEX IF NOT EXISTS idx_assets_project_id
                 ON assets(project_id, created_at DESC);
+
+                CREATE TABLE IF NOT EXISTS table_previews (
+                    asset_id TEXT PRIMARY KEY,
+                    preview_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(asset_id) REFERENCES assets(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS dataset_versions (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    source_asset_id TEXT NOT NULL,
+                    version INTEGER NOT NULL,
+                    parquet_relative_path TEXT NOT NULL,
+                    row_count INTEGER NOT NULL,
+                    columns_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    UNIQUE(source_asset_id, version),
+                    FOREIGN KEY(project_id) REFERENCES projects(id),
+                    FOREIGN KEY(source_asset_id) REFERENCES assets(id)
+                );
                 """
             )
 
@@ -329,6 +353,102 @@ class WorkspaceStore:
             ).fetchall()
         return [self._asset_from_row(row) for row in rows]
 
+    def get_asset(self, asset_id: str) -> AssetRecord:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, name, relative_path, media_type, size,
+                       sha256, parent_asset_id, created_at
+                FROM assets WHERE id = ?
+                """,
+                (asset_id,),
+            ).fetchone()
+        if row is None:
+            raise project_not_found(asset_id)
+        return self._asset_from_row(row)
+
+    def save_preview(self, preview: TablePreview) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO table_previews(asset_id, preview_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(asset_id) DO UPDATE SET
+                    preview_json = excluded.preview_json,
+                    updated_at = excluded.updated_at
+                """,
+                (preview.asset_id, preview.model_dump_json(by_alias=True), utc_now().isoformat()),
+            )
+
+    def get_preview(self, asset_id: str) -> TablePreview:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT preview_json FROM table_previews WHERE asset_id = ?",
+                (asset_id,),
+            ).fetchone()
+        if row is None:
+            raise job_not_found(asset_id)
+        return TablePreview.model_validate_json(row["preview_json"])
+
+    def create_dataset_version(
+        self, project_id: str, source_asset_id: str, parquet_relative_path: str,
+        row_count: int, columns: list[DatasetColumnSpec],
+    ) -> DatasetVersion:
+        timestamp = utc_now()
+        with self._connect() as connection:
+            current = connection.execute(
+                "SELECT COALESCE(MAX(version), 0) AS version FROM dataset_versions WHERE source_asset_id = ?",
+                (source_asset_id,),
+            ).fetchone()
+            version = int(current["version"]) + 1
+            record = DatasetVersion(
+                id=f"dataset-{uuid4().hex}", project_id=project_id,
+                source_asset_id=source_asset_id, version=version,
+                parquet_relative_path=parquet_relative_path, row_count=row_count,
+                columns=columns, created_at=timestamp,
+            )
+            connection.execute(
+                """
+                INSERT INTO dataset_versions(
+                    id, project_id, source_asset_id, version,
+                    parquet_relative_path, row_count, columns_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id, record.project_id, record.source_asset_id, record.version,
+                    record.parquet_relative_path, record.row_count,
+                    json.dumps([column.model_dump(by_alias=True) for column in columns], ensure_ascii=False),
+                    record.created_at.isoformat(),
+                ),
+            )
+        return record
+
+    def list_dataset_versions(self, project_id: str) -> list[DatasetVersion]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, source_asset_id, version,
+                       parquet_relative_path, row_count, columns_json, created_at
+                FROM dataset_versions WHERE project_id = ? ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._dataset_from_row(row) for row in rows]
+
+    def get_dataset_version(self, dataset_id: str) -> DatasetVersion:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_asset_id, version,
+                       parquet_relative_path, row_count, columns_json, created_at
+                FROM dataset_versions WHERE id = ?
+                """,
+                (dataset_id,),
+            ).fetchone()
+        if row is None:
+            raise job_not_found(dataset_id)
+        return self._dataset_from_row(row)
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -369,5 +489,15 @@ class WorkspaceStore:
             size=row["size"],
             sha256=row["sha256"],
             parent_asset_id=row["parent_asset_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    @staticmethod
+    def _dataset_from_row(row: sqlite3.Row) -> DatasetVersion:
+        return DatasetVersion(
+            id=row["id"], project_id=row["project_id"],
+            source_asset_id=row["source_asset_id"], version=row["version"],
+            parquet_relative_path=row["parquet_relative_path"], row_count=row["row_count"],
+            columns=[DatasetColumnSpec.model_validate(item) for item in json.loads(row["columns_json"])],
             created_at=datetime.fromisoformat(row["created_at"]),
         )

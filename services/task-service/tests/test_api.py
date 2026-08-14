@@ -8,6 +8,7 @@ from urllib.parse import quote
 
 from fastapi.testclient import TestClient
 from openpyxl import Workbook
+import pyarrow.parquet as parquet
 
 from app.main import create_app
 
@@ -211,3 +212,37 @@ def test_import_zip_rejects_path_traversal(tmp_path: Path) -> None:
     assert response.json()["errorType"] == "ArchiveExtractionError"
     assert response.json()["operation"] == "archive_extract"
     assert not (project_path / "outside.csv").exists()
+
+
+def test_confirm_fields_persists_preview_and_exports_versioned_parquet(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "chinese_sales_utf8.csv"
+    project_path = tmp_path / "dataset-project"
+
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        imported = import_file(client, str(project["id"]), fixture.name, fixture.read_bytes())
+        preview = imported.json()["preview"]
+        restored = client.get(f"/api/assets/{preview['assetId']}/preview")
+        payload = {
+            "assetId": preview["assetId"],
+            "columns": [
+                {"name": "城市", "dataType": "text"},
+                {"name": "销量", "dataType": "integer"},
+                {"name": "销售额", "dataType": "number"},
+                {"name": "是否促销", "dataType": "boolean"},
+            ],
+        }
+        version_one = client.post(f"/api/projects/{project['id']}/datasets", json=payload)
+        version_two = client.post(f"/api/projects/{project['id']}/datasets", json=payload)
+        downloaded = client.get(f"/api/datasets/{version_one.json()['id']}/parquet")
+
+    assert restored.status_code == 200
+    assert restored.json()["rows"][0]["城市"] == "上海"
+    assert version_one.status_code == 201
+    assert version_one.json()["version"] == 1
+    assert version_two.json()["version"] == 2
+    assert downloaded.content[:4] == b"PAR1"
+    table = parquet.read_table(project_path / version_one.json()["parquetRelativePath"])
+    assert table.num_rows == 3
+    assert table.column("销量").to_pylist() == [18, 25, 31]
+    assert table.column("是否促销").to_pylist() == [True, False, True]

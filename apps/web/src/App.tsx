@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   Asset,
+  DatasetColumnSpec,
+  DatasetVersion,
   Job,
   Project,
   ServiceHealth,
@@ -79,6 +81,9 @@ export function App() {
   const [projectReady, setProjectReady] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [preview, setPreview] = useState<TablePreview | null>(null);
+  const [dataset, setDataset] = useState<DatasetVersion | null>(null);
+  const [fieldTypes, setFieldTypes] = useState<Record<string, DatasetColumnSpec["dataType"]>>({});
+  const [confirming, setConfirming] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<WorkspaceError | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -101,7 +106,20 @@ export function App() {
       .getDefaultProject()
       .then(async (project) => {
         setSelectedProject(project);
-        setAssets(await workspaceClient.listAssets(project.id));
+        const projectAssets = await workspaceClient.listAssets(project.id);
+        setAssets(projectAssets);
+        const datasets = await workspaceClient.listDatasets(project.id);
+        setDataset(datasets[0] ?? null);
+        for (const asset of projectAssets) {
+          try {
+            const restoredPreview = await workspaceClient.getPreview(asset.id);
+            setPreview(restoredPreview);
+            setFieldTypes(createInitialFieldTypes(restoredPreview));
+            break;
+          } catch {
+            // Assets without table previews are skipped during workspace restoration.
+          }
+        }
         setProjectReady(true);
       })
       .catch((error: unknown) => {
@@ -123,6 +141,8 @@ export function App() {
     try {
       const result = await workspaceClient.importFile(selectedProject.id, file);
       setPreview(result.preview ?? null);
+      setDataset(null);
+      setFieldTypes(result.preview ? createInitialFieldTypes(result.preview) : {});
       setAssets(await workspaceClient.listAssets(selectedProject.id));
       setActiveRail("datasets");
       setActiveInspector("properties");
@@ -140,6 +160,28 @@ export function App() {
       }
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function confirmFields() {
+    if (!preview) {
+      return;
+    }
+    setConfirming(true);
+    setImportError(null);
+    try {
+      const columns = preview.columns.map((column) => ({
+        name: column.name,
+        dataType: fieldTypes[column.name] ?? "text",
+      }));
+      setDataset(await workspaceClient.createDataset(selectedProject.id, preview.assetId, columns));
+    } catch (error: unknown) {
+      const workspaceError = error instanceof WorkspaceClientError
+        ? error.workspaceError
+        : { errorType: "DatasetCreateError", message: error instanceof Error ? error.message : "数据集创建失败", operation: "dataset_create", recoverable: true, details: {} };
+      setImportError(workspaceError);
+    } finally {
+      setConfirming(false);
     }
   }
 
@@ -201,7 +243,11 @@ export function App() {
               preview={preview}
               importError={importError}
               importing={importing}
+              confirming={confirming}
+              dataset={dataset}
               projectReady={projectReady}
+              onConfirm={() => void confirmFields()}
+              onExport={() => dataset && window.open(workspaceClient.getParquetUrl(dataset.id), "_blank")}
               onImport={() => projectReady && fileInputRef.current?.click()}
             />
             <CommandDock
@@ -222,6 +268,9 @@ export function App() {
             job={selectedJob}
             project={selectedProject}
             preview={preview}
+            dataset={dataset}
+            fieldTypes={fieldTypes}
+            onFieldTypeChange={(name, dataType) => setFieldTypes((current) => ({ ...current, [name]: dataType }))}
             onTabChange={setActiveInspector}
           />
         </Panel>
@@ -495,8 +544,12 @@ type WorkspaceContentProps = {
   preview: TablePreview | null;
   importError: WorkspaceError | null;
   importing: boolean;
+  confirming: boolean;
+  dataset: DatasetVersion | null;
   projectReady: boolean;
   onImport: () => void;
+  onConfirm: () => void;
+  onExport: () => void;
 };
 
 function WorkspaceContent({
@@ -505,8 +558,12 @@ function WorkspaceContent({
   preview,
   importError,
   importing,
+  confirming,
+  dataset,
   projectReady,
   onImport,
+  onConfirm,
+  onExport,
 }: WorkspaceContentProps) {
   const numericColumnCount =
     preview?.columns.filter((column) =>
@@ -531,9 +588,9 @@ function WorkspaceContent({
               停止
             </button>
           ) : null}
-          <button className="primary-button" type="button">
+          <button className="primary-button" type="button" onClick={onConfirm} disabled={!preview || confirming}>
             <Play aria-hidden="true" size={15} />
-            {preview ? "确认字段" : "继续运行"}
+            {preview ? confirming ? "正在创建" : dataset ? `数据集 v${dataset.version}` : "确认字段" : "继续运行"}
           </button>
         </div>
       </section>
@@ -584,6 +641,12 @@ function WorkspaceContent({
               <Import aria-hidden="true" size={15} />
               {importing ? "正在导入" : projectReady ? "导入数据" : "正在打开项目"}
             </button>
+            {dataset ? (
+              <button className="secondary-button" type="button" onClick={onExport}>
+                <Archive aria-hidden="true" size={15} />
+                导出 Parquet
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -717,6 +780,15 @@ function formatCell(value: unknown) {
   return String(value);
 }
 
+function createInitialFieldTypes(preview: TablePreview) {
+  return Object.fromEntries(
+    preview.columns.map((column) => [
+      column.name,
+      column.inferredType === "empty" ? "text" : column.inferredType,
+    ]),
+  ) as Record<string, DatasetColumnSpec["dataType"]>;
+}
+
 function ActivityRow({
   time,
   title,
@@ -745,6 +817,9 @@ type InspectorPanelProps = {
   job: Job;
   project: Project;
   preview: TablePreview | null;
+  dataset: DatasetVersion | null;
+  fieldTypes: Record<string, DatasetColumnSpec["dataType"]>;
+  onFieldTypeChange: (name: string, dataType: DatasetColumnSpec["dataType"]) => void;
   onTabChange: (tab: string) => void;
 };
 
@@ -753,6 +828,9 @@ function InspectorPanel({
   job,
   project,
   preview,
+  dataset,
+  fieldTypes,
+  onFieldTypeChange,
   onTabChange,
 }: InspectorPanelProps) {
   const tabs = [
@@ -805,6 +883,28 @@ function InspectorPanel({
             <PropertyRow label="工作表" value={preview.sheetName ?? "不适用"} />
             <PropertyRow label="行数" value={preview.rowCount.toLocaleString("zh-CN")} />
             <PropertyRow label="字段数" value={String(preview.columnCount)} />
+            {dataset ? <PropertyRow label="数据集版本" value={`v${dataset.version}`} /> : null}
+          </InspectorSection>
+        ) : null}
+
+        {preview ? (
+          <InspectorSection title="字段确认">
+            <div className="field-type-list">
+              {preview.columns.map((column) => (
+                <label key={column.name} className="field-type-row">
+                  <span title={column.name}>{column.name}</span>
+                  <select
+                    value={fieldTypes[column.name] ?? "text"}
+                    onChange={(event) => onFieldTypeChange(column.name, event.target.value as DatasetColumnSpec["dataType"])}
+                  >
+                    <option value="text">文本</option>
+                    <option value="integer">整数</option>
+                    <option value="number">数值</option>
+                    <option value="boolean">布尔值</option>
+                  </select>
+                </label>
+              ))}
+            </div>
           </InspectorSection>
         ) : null}
 

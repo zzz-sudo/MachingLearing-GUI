@@ -1,8 +1,11 @@
 import type {
   Asset,
+  DatasetColumnSpec,
+  DatasetVersion,
   ImportResult,
   Project,
   ServiceHealth,
+  TablePreview,
   WorkspaceError,
 } from "@ml-gui/contracts";
 
@@ -21,6 +24,30 @@ export class LocalWorkspaceClient {
 
   async listAssets(projectId: string): Promise<Asset[]> {
     return this.request<Asset[]>(`/projects/${projectId}/assets`);
+  }
+
+  async getPreview(assetId: string): Promise<TablePreview> {
+    return this.request<TablePreview>(`/assets/${assetId}/preview`);
+  }
+
+  async listDatasets(projectId: string): Promise<DatasetVersion[]> {
+    return this.request<DatasetVersion[]>(`/projects/${projectId}/datasets`);
+  }
+
+  async createDataset(
+    projectId: string,
+    assetId: string,
+    columns: DatasetColumnSpec[],
+  ): Promise<DatasetVersion> {
+    return this.request<DatasetVersion>(`/projects/${projectId}/datasets`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetId, columns }),
+    });
+  }
+
+  getParquetUrl(datasetId: string): string {
+    return `${this.baseUrl}/datasets/${datasetId}/parquet`;
   }
 
   async importFile(projectId: string, file: File): Promise<ImportResult> {

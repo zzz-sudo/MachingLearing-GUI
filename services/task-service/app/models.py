@@ -106,3 +106,24 @@ class ImportResult(ApiModel):
     preview: TablePreview | None = None
     extracted_count: int = 0
     warnings: list[str] = Field(default_factory=list)
+
+
+class DatasetColumnSpec(ApiModel):
+    name: str
+    data_type: str
+
+
+class DatasetCreate(ApiModel):
+    asset_id: str
+    columns: list[DatasetColumnSpec]
+
+
+class DatasetVersion(ApiModel):
+    id: str
+    project_id: str
+    source_asset_id: str
+    version: int
+    parquet_relative_path: str
+    row_count: int
+    columns: list[DatasetColumnSpec]
+    created_at: datetime

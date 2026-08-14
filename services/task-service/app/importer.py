@@ -85,6 +85,9 @@ class FileImporter:
                 supportedFormats=sorted(TABLE_SUFFIXES | ARCHIVE_SUFFIXES),
             )
 
+        if preview is not None:
+            self.store.save_preview(preview)
+
         return ImportResult(
             imported_assets=imported_assets,
             preview=preview,

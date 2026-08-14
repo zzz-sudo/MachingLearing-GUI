@@ -68,6 +68,22 @@ export type ImportResult = {
   warnings: string[];
 };
 
+export type DatasetColumnSpec = {
+  name: string;
+  dataType: "text" | "integer" | "number" | "boolean";
+};
+
+export type DatasetVersion = {
+  id: string;
+  projectId: string;
+  sourceAssetId: string;
+  version: number;
+  parquetRelativePath: string;
+  rowCount: number;
+  columns: DatasetColumnSpec[];
+  createdAt: string;
+};
+
 export type WorkspaceError = {
   errorType: string;
   message: string;

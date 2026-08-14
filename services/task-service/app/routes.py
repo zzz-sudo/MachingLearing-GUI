@@ -1,12 +1,17 @@
 from __future__ import annotations
 
+from pathlib import Path
 from urllib.parse import unquote
 
 from fastapi import APIRouter, Header, Query, Request
+from fastapi.responses import FileResponse
 
+from app.datasets import DatasetService
 from app.importer import FileImporter
 from app.models import (
     AssetRecord,
+    DatasetCreate,
+    DatasetVersion,
     ImportResult,
     JobCreate,
     JobRecord,
@@ -14,6 +19,7 @@ from app.models import (
     ProjectCreate,
     ProjectRecord,
     ServiceHealth,
+    TablePreview,
 )
 from app.storage import WorkspaceStore
 
@@ -52,6 +58,30 @@ def get_project(project_id: str, request: Request) -> ProjectRecord:
 @router.get("/projects/{project_id}/assets", response_model=list[AssetRecord])
 def list_assets(project_id: str, request: Request) -> list[AssetRecord]:
     return get_store(request).list_assets(project_id)
+
+
+@router.get("/assets/{asset_id}/preview", response_model=TablePreview)
+def get_asset_preview(asset_id: str, request: Request) -> TablePreview:
+    return get_store(request).get_preview(asset_id)
+
+
+@router.get("/projects/{project_id}/datasets", response_model=list[DatasetVersion])
+def list_datasets(project_id: str, request: Request) -> list[DatasetVersion]:
+    return get_store(request).list_dataset_versions(project_id)
+
+
+@router.post("/projects/{project_id}/datasets", response_model=DatasetVersion, status_code=201)
+def create_dataset(project_id: str, payload: DatasetCreate, request: Request) -> DatasetVersion:
+    return DatasetService(get_store(request)).create(project_id, payload)
+
+
+@router.get("/datasets/{dataset_id}/parquet")
+def download_parquet(dataset_id: str, request: Request) -> FileResponse:
+    store = get_store(request)
+    dataset = store.get_dataset_version(dataset_id)
+    project = store.get_project(dataset.project_id)
+    path = Path(project.path) / dataset.parquet_relative_path
+    return FileResponse(path, media_type="application/vnd.apache.parquet", filename=path.name)
 
 
 @router.post(
