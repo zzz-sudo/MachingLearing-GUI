@@ -1,8 +1,13 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Query, Request
+from urllib.parse import unquote
 
+from fastapi import APIRouter, Header, Query, Request
+
+from app.importer import FileImporter
 from app.models import (
+    AssetRecord,
+    ImportResult,
     JobCreate,
     JobRecord,
     JobUpdate,
@@ -34,9 +39,37 @@ def create_project(payload: ProjectCreate, request: Request) -> ProjectRecord:
     return get_store(request).create_project(payload)
 
 
+@router.post("/projects/default", response_model=ProjectRecord)
+def get_default_project(request: Request) -> ProjectRecord:
+    return get_store(request).get_or_create_default_project()
+
+
 @router.get("/projects/{project_id}", response_model=ProjectRecord)
 def get_project(project_id: str, request: Request) -> ProjectRecord:
     return get_store(request).get_project(project_id)
+
+
+@router.get("/projects/{project_id}/assets", response_model=list[AssetRecord])
+def list_assets(project_id: str, request: Request) -> list[AssetRecord]:
+    return get_store(request).list_assets(project_id)
+
+
+@router.post(
+    "/projects/{project_id}/imports",
+    response_model=ImportResult,
+    status_code=201,
+)
+async def import_file(
+    project_id: str,
+    request: Request,
+    x_filename: str = Header(alias="X-Filename"),
+) -> ImportResult:
+    content = await request.body()
+    return FileImporter(get_store(request)).import_bytes(
+        project_id=project_id,
+        filename=unquote(x_filename),
+        content=content,
+    )
 
 
 @router.get("/jobs", response_model=list[JobRecord])
@@ -55,4 +88,5 @@ def create_job(payload: JobCreate, request: Request) -> JobRecord:
 @router.patch("/jobs/{job_id}", response_model=JobRecord)
 def update_job(job_id: str, payload: JobUpdate, request: Request) -> JobRecord:
     return get_store(request).update_job(job_id, payload)
-
+    AssetRecord,
+    ImportResult,

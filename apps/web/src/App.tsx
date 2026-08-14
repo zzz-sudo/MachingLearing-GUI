@@ -1,5 +1,12 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Job, Project, ServiceHealth } from "@ml-gui/contracts";
+import { useEffect, useMemo, useRef, useState } from "react";
+import type {
+  Asset,
+  Job,
+  Project,
+  ServiceHealth,
+  TablePreview,
+  WorkspaceError,
+} from "@ml-gui/contracts";
 import {
   Archive,
   BarChart3,
@@ -32,7 +39,10 @@ import {
   PanelGroup,
   PanelResizeHandle,
 } from "react-resizable-panels";
-import { LocalWorkspaceClient } from "./api/localWorkspaceClient";
+import {
+  LocalWorkspaceClient,
+  WorkspaceClientError,
+} from "./api/localWorkspaceClient";
 import { demoJobs, demoProjects } from "./data/demo";
 
 const workspaceClient = new LocalWorkspaceClient();
@@ -65,6 +75,13 @@ export function App() {
   const [prompt, setPrompt] = useState("");
   const [health, setHealth] = useState<ServiceHealth | null>(null);
   const [serviceError, setServiceError] = useState<string | null>(null);
+  const [selectedProject, setSelectedProject] = useState(initialProject);
+  const [projectReady, setProjectReady] = useState(false);
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [preview, setPreview] = useState<TablePreview | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importError, setImportError] = useState<WorkspaceError | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     void workspaceClient
@@ -79,6 +96,17 @@ export function App() {
           error instanceof Error ? error.message : "本地任务服务连接失败",
         );
       });
+
+    void workspaceClient
+      .getDefaultProject()
+      .then(async (project) => {
+        setSelectedProject(project);
+        setAssets(await workspaceClient.listAssets(project.id));
+        setProjectReady(true);
+      })
+      .catch((error: unknown) => {
+        setServiceError(error instanceof Error ? error.message : "无法打开本地工作区");
+      });
   }, []);
 
   const selectedJob = useMemo(
@@ -86,7 +114,34 @@ export function App() {
     [selectedJobId],
   );
 
-  const selectedProject = initialProject;
+  async function importSelectedFile(file: File) {
+    if (!projectReady) {
+      return;
+    }
+    setImporting(true);
+    setImportError(null);
+    try {
+      const result = await workspaceClient.importFile(selectedProject.id, file);
+      setPreview(result.preview ?? null);
+      setAssets(await workspaceClient.listAssets(selectedProject.id));
+      setActiveRail("datasets");
+      setActiveInspector("properties");
+    } catch (error: unknown) {
+      if (error instanceof WorkspaceClientError) {
+        setImportError(error.workspaceError);
+      } else {
+        setImportError({
+          errorType: "LocalServiceError",
+          message: error instanceof Error ? error.message : "文件导入失败",
+          operation: "file_import",
+          recoverable: true,
+          details: {},
+        });
+      }
+    } finally {
+      setImporting(false);
+    }
+  }
 
   function submitPrompt() {
     const message = prompt.trim();
@@ -99,6 +154,19 @@ export function App() {
 
   return (
     <div className="app-shell">
+      <input
+        ref={fileInputRef}
+        className="sr-only"
+        type="file"
+        accept=".csv,.xlsx,.zip,.tar,.tgz,.gz"
+        onChange={(event) => {
+          const file = event.target.files?.[0];
+          if (file) {
+            void importSelectedFile(file);
+          }
+          event.target.value = "";
+        }}
+      />
       <GlobalRail activeItem={activeRail} onChange={setActiveRail} />
 
       <PanelGroup direction="horizontal" className="workspace-panels">
@@ -106,7 +174,11 @@ export function App() {
           <ContextSidebar
             jobs={demoJobs}
             project={selectedProject}
+            assets={assets}
+            importing={importing}
+            projectReady={projectReady}
             selectedJobId={selectedJobId}
+            onImport={() => projectReady && fileInputRef.current?.click()}
             onSelectJob={setSelectedJobId}
           />
         </Panel>
@@ -118,10 +190,20 @@ export function App() {
             <WorkspaceHeader
               activeRail={activeRail}
               health={health}
+              preview={preview}
+              project={selectedProject}
               serviceError={serviceError}
             />
-            <WorkflowBar job={selectedJob} />
-            <WorkspaceContent job={selectedJob} project={selectedProject} />
+            <WorkflowBar job={selectedJob} preview={preview} />
+            <WorkspaceContent
+              job={selectedJob}
+              project={selectedProject}
+              preview={preview}
+              importError={importError}
+              importing={importing}
+              projectReady={projectReady}
+              onImport={() => projectReady && fileInputRef.current?.click()}
+            />
             <CommandDock
               activeMode={activeMode}
               prompt={prompt}
@@ -139,6 +221,7 @@ export function App() {
             activeTab={activeInspector}
             job={selectedJob}
             project={selectedProject}
+            preview={preview}
             onTabChange={setActiveInspector}
           />
         </Panel>
@@ -189,14 +272,22 @@ function GlobalRail({ activeItem, onChange }: GlobalRailProps) {
 type ContextSidebarProps = {
   jobs: Job[];
   project: Project;
+  assets: Asset[];
+  importing: boolean;
+  projectReady: boolean;
   selectedJobId: string;
+  onImport: () => void;
   onSelectJob: (jobId: string) => void;
 };
 
 function ContextSidebar({
   jobs,
   project,
+  assets,
+  importing,
+  projectReady,
   selectedJobId,
+  onImport,
   onSelectJob,
 }: ContextSidebarProps) {
   return (
@@ -209,7 +300,13 @@ function ContextSidebar({
             <ChevronDown aria-hidden="true" size={15} />
           </button>
         </div>
-        <button className="icon-button" title="导入文件" type="button">
+        <button
+          className="icon-button"
+          title={importing ? "正在导入" : "导入文件"}
+          type="button"
+          disabled={importing || !projectReady}
+          onClick={onImport}
+        >
           <Import aria-hidden="true" size={17} />
           <span className="sr-only">导入文件</span>
         </button>
@@ -223,14 +320,20 @@ function ContextSidebar({
       <section className="sidebar-section">
         <SectionTitle icon={ListTree} title="项目内容" />
         <div className="asset-tree">
-          <TreeRow icon={FolderOpen} label="销售预测项目" level={0} open />
+          <TreeRow icon={FolderOpen} label={project.name} level={0} open />
           <TreeRow icon={Folder} label="原始文件" level={1} open />
-          <TreeRow
-            icon={FileSpreadsheet}
-            label="华东区域销售数据.xlsx"
-            level={2}
-          />
-          <TreeRow icon={Archive} label="补充资料.zip" level={2} />
+          {assets.length > 0 ? (
+            assets.slice(0, 8).map((asset) => (
+              <TreeRow
+                key={asset.id}
+                icon={asset.mediaType.includes("zip") ? Archive : FileSpreadsheet}
+                label={asset.name}
+                level={2}
+              />
+            ))
+          ) : (
+            <TreeRow icon={FileSpreadsheet} label="尚未导入数据文件" level={2} />
+          )}
           <TreeRow icon={Database} label="销售数据集 v3" level={1} />
           <TreeRow icon={FileText} label="字段说明.pdf" level={1} />
           <TreeRow icon={Box} label="销量回归模型 v2" level={1} />
@@ -261,7 +364,7 @@ function ContextSidebar({
 
       <div className="sidebar-footer">
         <span>本地项目</span>
-        <span>4 个资产</span>
+        <span>{assets.length} 个资产</span>
       </div>
     </aside>
   );
@@ -320,12 +423,16 @@ function TreeRow({ icon: Icon, label, level, open = false }: TreeRowProps) {
 type WorkspaceHeaderProps = {
   activeRail: string;
   health: ServiceHealth | null;
+  preview: TablePreview | null;
+  project: Project;
   serviceError: string | null;
 };
 
 function WorkspaceHeader({
   activeRail,
   health,
+  preview,
+  project,
   serviceError,
 }: WorkspaceHeaderProps) {
   const activeLabel =
@@ -334,8 +441,8 @@ function WorkspaceHeader({
   return (
     <header className="workspace-header">
       <div className="workspace-title">
-        <span className="breadcrumb">销售预测项目 / {activeLabel}</span>
-        <h1>华东区域销售数据分析</h1>
+        <span className="breadcrumb">{project.name} / {activeLabel}</span>
+        <h1>{preview?.sourceName ?? "华东区域销售数据分析"}</h1>
       </div>
 
       <div className="header-actions">
@@ -356,9 +463,9 @@ function WorkspaceHeader({
   );
 }
 
-function WorkflowBar({ job }: { job: Job }) {
+function WorkflowBar({ job, preview }: { job: Job; preview: TablePreview | null }) {
   const steps = ["导入", "字段检查", "训练配置", "模型训练", "结果评估"];
-  const activeIndex = job.status === "succeeded" ? 4 : 3;
+  const activeIndex = preview ? 1 : job.status === "succeeded" ? 4 : 3;
 
   return (
     <div className="workflow-bar" aria-label="当前工作流">
@@ -385,53 +492,97 @@ function WorkflowBar({ job }: { job: Job }) {
 type WorkspaceContentProps = {
   job: Job;
   project: Project;
+  preview: TablePreview | null;
+  importError: WorkspaceError | null;
+  importing: boolean;
+  projectReady: boolean;
+  onImport: () => void;
 };
 
-function WorkspaceContent({ job, project }: WorkspaceContentProps) {
+function WorkspaceContent({
+  job,
+  project,
+  preview,
+  importError,
+  importing,
+  projectReady,
+  onImport,
+}: WorkspaceContentProps) {
+  const numericColumnCount =
+    preview?.columns.filter((column) =>
+      ["integer", "number"].includes(column.inferredType),
+    ).length ?? 0;
+
   return (
     <div className="workspace-scroll">
       <section className="summary-band">
         <div>
-          <span className={`status-dot status-${job.status}`} />
+          <span className={`status-dot status-${preview ? "waiting_confirmation" : job.status}`} />
           <div>
             <span className="section-kicker">当前任务</span>
-            <h2>{job.title}</h2>
-            <p>{job.message}</p>
+            <h2>{preview ? `检查 ${preview.sourceName} 的字段` : job.title}</h2>
+            <p>{preview ? `已读取 ${preview.rowCount.toLocaleString("zh-CN")} 行数据，请确认字段类型和空值。` : job.message}</p>
           </div>
         </div>
         <div className="task-controls">
-          <button className="secondary-button" type="button">
-            <CircleStop aria-hidden="true" size={15} />
-            停止
-          </button>
+          {!preview ? (
+            <button className="secondary-button" type="button">
+              <CircleStop aria-hidden="true" size={15} />
+              停止
+            </button>
+          ) : null}
           <button className="primary-button" type="button">
             <Play aria-hidden="true" size={15} />
-            继续运行
+            {preview ? "确认字段" : "继续运行"}
           </button>
         </div>
       </section>
 
+      {importError ? (
+        <section className="import-error" role="alert">
+          <strong>{importError.errorType}</strong>
+          <span>{importError.message}</span>
+          <code>{importError.operation}</code>
+        </section>
+      ) : null}
+
       <section className="metrics-strip" aria-label="数据集摘要">
-        <Metric label="数据行" value="48,216" detail="已过滤 126 行" />
-        <Metric label="字段" value="24" detail="数值 15, 类别 9" />
-        <Metric label="目标列" value="销售额" detail="回归任务" />
-        <Metric label="当前模型" value="HGBR" detail="验证 R2 0.872" />
+        <Metric
+          label="数据行"
+          value={preview ? preview.rowCount.toLocaleString("zh-CN") : "48,216"}
+          detail={preview ? `预览前 ${preview.rows.length} 行` : "已过滤 126 行"}
+        />
+        <Metric
+          label="字段"
+          value={preview ? String(preview.columnCount) : "24"}
+          detail={preview ? `数值 ${numericColumnCount}, 其他 ${preview.columnCount - numericColumnCount}` : "数值 15, 类别 9"}
+        />
+        <Metric
+          label="文件格式"
+          value={preview?.format.toUpperCase() ?? "XLSX"}
+          detail={preview?.sheetName ?? preview?.encoding ?? "销售数据集 v3"}
+        />
+        <Metric
+          label="当前状态"
+          value={preview ? "待检查" : "训练中"}
+          detail={preview ? "请确认字段类型" : "验证 R2 0.872"}
+        />
       </section>
 
       <section className="content-section">
         <div className="content-heading">
           <div>
             <span className="section-kicker">数据预览</span>
-            <h2>销售数据集 v3</h2>
+            <h2>{preview?.sourceName ?? "销售数据集 v3"}</h2>
           </div>
           <div className="content-actions">
             <button className="icon-button" title="筛选字段" type="button">
               <SlidersHorizontal aria-hidden="true" size={16} />
               <span className="sr-only">筛选字段</span>
             </button>
-            <button className="secondary-button" type="button">
-              <FileSpreadsheet aria-hidden="true" size={15} />
-              打开数据表
+            <button className="secondary-button" type="button" onClick={onImport} disabled={importing || !projectReady}>
+              <Import aria-hidden="true" size={15} />
+              {importing ? "正在导入" : projectReady ? "导入数据" : "正在打开项目"}
             </button>
           </div>
         </div>
@@ -439,54 +590,45 @@ function WorkspaceContent({ job, project }: WorkspaceContentProps) {
         <div className="data-table-shell">
           <table>
             <thead>
-              <tr>
-                <th>日期</th>
-                <th>区域</th>
-                <th>产品类别</th>
-                <th>渠道</th>
-                <th className="number-cell">销量</th>
-                <th className="number-cell">销售额</th>
-              </tr>
+              {preview ? (
+                <tr>
+                  {preview.columns.map((column) => (
+                    <th
+                      key={column.name}
+                      className={isNumericType(column.inferredType) ? "number-cell" : undefined}
+                      title={`${column.name}, ${column.inferredType}`}
+                    >
+                      {column.name}
+                    </th>
+                  ))}
+                </tr>
+              ) : (
+                <tr>
+                  <th>日期</th><th>区域</th><th>产品类别</th><th>渠道</th>
+                  <th className="number-cell">销量</th><th className="number-cell">销售额</th>
+                </tr>
+              )}
             </thead>
             <tbody>
-              <tr>
-                <td>2026-07-01</td>
-                <td>上海</td>
-                <td>办公设备</td>
-                <td>直营网点</td>
-                <td className="number-cell">318</td>
-                <td className="number-cell">286,420.00</td>
-              </tr>
-              <tr>
-                <td>2026-07-01</td>
-                <td>江苏</td>
-                <td>耗材</td>
-                <td>电商</td>
-                <td className="number-cell">1,284</td>
-                <td className="number-cell">174,036.50</td>
-              </tr>
-              <tr>
-                <td>2026-07-02</td>
-                <td>浙江</td>
-                <td>家具</td>
-                <td>经销商</td>
-                <td className="number-cell">96</td>
-                <td className="number-cell">321,680.00</td>
-              </tr>
-              <tr>
-                <td>2026-07-02</td>
-                <td>安徽</td>
-                <td>办公设备</td>
-                <td>电商</td>
-                <td className="number-cell">224</td>
-                <td className="number-cell">196,742.00</td>
-              </tr>
+              {preview ? preview.rows.map((row, rowIndex) => (
+                <tr key={rowIndex}>
+                  {preview.columns.map((column) => (
+                    <td
+                      key={column.name}
+                      className={isNumericType(column.inferredType) ? "number-cell" : undefined}
+                      title={formatCell(row[column.name])}
+                    >
+                      {formatCell(row[column.name])}
+                    </td>
+                  ))}
+                </tr>
+              )) : <DemoTableRows />}
             </tbody>
           </table>
         </div>
         <div className="table-footer">
-          <span>显示前 4 行, 共 48,216 行</span>
-          <span>来源: {project.path}</span>
+          <span>{preview ? `显示前 ${preview.rows.length} 行, 共 ${preview.rowCount.toLocaleString("zh-CN")} 行` : "显示前 4 行, 共 48,216 行"}</span>
+          <span>来源: {preview?.sourceName ?? project.path}</span>
         </div>
       </section>
 
@@ -494,31 +636,26 @@ function WorkspaceContent({ job, project }: WorkspaceContentProps) {
         <div className="content-heading">
           <div>
             <span className="section-kicker">执行记录</span>
-            <h2>训练活动</h2>
+            <h2>{preview ? "导入活动" : "训练活动"}</h2>
           </div>
           <button className="text-button" type="button">
             查看完整日志
           </button>
         </div>
         <div className="activity-list">
-          <ActivityRow
-            time="14:32:18"
-            title="训练数据准备完成"
-            detail="训练集 33,751 行, 验证集 7,232 行, 测试集 7,233 行"
-            state="complete"
-          />
-          <ActivityRow
-            time="14:32:21"
-            title="类别字段编码完成"
-            detail="处理 9 个类别字段, 未发现未知类别"
-            state="complete"
-          />
-          <ActivityRow
-            time="14:33:04"
-            title="HistGradientBoosting 训练中"
-            detail={`当前进度 ${job.progress}%, 预计剩余 1 分 24 秒`}
-            state="active"
-          />
+          {preview ? (
+            <>
+              <ActivityRow time="刚刚" title="原始文件已保存" detail={`${preview.sourceName}, SHA-256 已记录`} state="complete" />
+              <ActivityRow time="刚刚" title="表格结构已读取" detail={`${preview.columnCount} 个字段, ${preview.rowCount.toLocaleString("zh-CN")} 行`} state="complete" />
+              <ActivityRow time="当前" title="等待字段确认" detail="确认字段类型后可创建数据集版本" state="active" />
+            </>
+          ) : (
+            <>
+              <ActivityRow time="14:32:18" title="训练数据准备完成" detail="训练集 33,751 行, 验证集 7,232 行, 测试集 7,233 行" state="complete" />
+              <ActivityRow time="14:32:21" title="类别字段编码完成" detail="处理 9 个类别字段, 未发现未知类别" state="complete" />
+              <ActivityRow time="14:33:04" title="HistGradientBoosting 训练中" detail={`当前进度 ${job.progress}%, 预计剩余 1 分 24 秒`} state="active" />
+            </>
+          )}
         </div>
       </section>
     </div>
@@ -541,6 +678,43 @@ function Metric({
       <small>{detail}</small>
     </div>
   );
+}
+
+function DemoTableRows() {
+  return (
+    <>
+      <tr>
+        <td>2026-07-01</td><td>上海</td><td>办公设备</td><td>直营网点</td>
+        <td className="number-cell">318</td><td className="number-cell">286,420.00</td>
+      </tr>
+      <tr>
+        <td>2026-07-01</td><td>江苏</td><td>耗材</td><td>电商</td>
+        <td className="number-cell">1,284</td><td className="number-cell">174,036.50</td>
+      </tr>
+      <tr>
+        <td>2026-07-02</td><td>浙江</td><td>家具</td><td>经销商</td>
+        <td className="number-cell">96</td><td className="number-cell">321,680.00</td>
+      </tr>
+      <tr>
+        <td>2026-07-02</td><td>安徽</td><td>办公设备</td><td>电商</td>
+        <td className="number-cell">224</td><td className="number-cell">196,742.00</td>
+      </tr>
+    </>
+  );
+}
+
+function isNumericType(type: string) {
+  return type === "integer" || type === "number";
+}
+
+function formatCell(value: unknown) {
+  if (value === null || value === undefined || value === "") {
+    return "";
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
 }
 
 function ActivityRow({
@@ -570,6 +744,7 @@ type InspectorPanelProps = {
   activeTab: string;
   job: Job;
   project: Project;
+  preview: TablePreview | null;
   onTabChange: (tab: string) => void;
 };
 
@@ -577,6 +752,7 @@ function InspectorPanel({
   activeTab,
   job,
   project,
+  preview,
   onTabChange,
 }: InspectorPanelProps) {
   const tabs = [
@@ -604,33 +780,44 @@ function InspectorPanel({
 
       <div className="inspector-scroll">
         <InspectorSection title="任务状态">
-          <PropertyRow label="状态" value={statusLabels[job.status]} />
-          <PropertyRow label="进度" value={`${job.progress}%`} />
-          <div className="progress-track" aria-label={`任务进度 ${job.progress}%`}>
-            <span style={{ width: `${job.progress}%` }} />
+          <PropertyRow label="状态" value={preview ? "等待确认" : statusLabels[job.status]} />
+          <PropertyRow label="进度" value={preview ? "100%" : `${job.progress}%`} />
+          <div className="progress-track" aria-label={`任务进度 ${preview ? 100 : job.progress}%`}>
+            <span style={{ width: `${preview ? 100 : job.progress}%` }} />
           </div>
           <PropertyRow label="运行位置" value="本地 Worker" />
           <PropertyRow label="更新时间" value="今天 14:33" />
         </InspectorSection>
 
-        <InspectorSection title="训练配置">
+        {!preview ? <InspectorSection title="训练配置">
           <PropertyRow label="任务类型" value="回归" />
           <PropertyRow label="目标列" value="销售额" />
           <PropertyRow label="算法" value="HistGradientBoosting" />
           <PropertyRow label="随机种子" value="42" />
           <PropertyRow label="验证比例" value="15%" />
-        </InspectorSection>
+        </InspectorSection> : null}
 
-        <InspectorSection title="字段处理">
+        {preview ? (
+          <InspectorSection title="导入文件">
+            <PropertyRow label="文件名" value={preview.sourceName} />
+            <PropertyRow label="格式" value={preview.format.toUpperCase()} />
+            <PropertyRow label="编码" value={preview.encoding ?? "不适用"} />
+            <PropertyRow label="工作表" value={preview.sheetName ?? "不适用"} />
+            <PropertyRow label="行数" value={preview.rowCount.toLocaleString("zh-CN")} />
+            <PropertyRow label="字段数" value={String(preview.columnCount)} />
+          </InspectorSection>
+        ) : null}
+
+        <InspectorSection title={preview ? "字段概况" : "字段处理"}>
           <InspectorNotice
             icon={Braces}
             title="数值字段"
-            detail="15 个字段, 使用中位数填充"
+            detail={preview ? `${preview.columns.filter((column) => isNumericType(column.inferredType)).length} 个字段` : "15 个字段, 使用中位数填充"}
           />
           <InspectorNotice
             icon={FileSpreadsheet}
             title="类别字段"
-            detail="9 个字段, 使用序数编码"
+            detail={preview ? `${preview.columns.filter((column) => !isNumericType(column.inferredType)).length} 个字段` : "9 个字段, 使用序数编码"}
           />
           <InspectorNotice
             icon={BarChart3}

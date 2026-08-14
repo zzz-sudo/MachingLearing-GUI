@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -52,3 +53,17 @@ def job_not_found(job_id: str) -> WorkspaceServiceError:
         details={"jobId": job_id},
     )
 
+
+def import_error(
+    error_type: str,
+    message: str,
+    operation: str,
+    **details: Any,
+) -> WorkspaceServiceError:
+    return WorkspaceServiceError(
+        error_type=error_type,
+        message=message,
+        operation=operation,
+        status_code=400,
+        details=details,
+    )

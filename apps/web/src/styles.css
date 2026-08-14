@@ -228,6 +228,12 @@ textarea:focus-visible {
   background: var(--surface-soft);
 }
 
+.icon-button:disabled,
+.secondary-button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
 .search-box {
   display: flex;
   align-items: center;
@@ -606,6 +612,36 @@ textarea:focus-visible {
   border: 1px solid var(--line);
   border-radius: 6px;
   background: var(--surface);
+}
+
+.import-error {
+  display: grid;
+  grid-template-columns: 180px minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-height: 44px;
+  margin-top: 12px;
+  padding: 9px 12px;
+  border: 1px solid #d7aaa5;
+  border-radius: 5px;
+  background: #fbf1f0;
+  color: #713c37;
+  font-size: 11px;
+}
+
+.import-error strong,
+.import-error span,
+.import-error code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.import-error code {
+  color: #84514c;
+  font-family: Consolas, monospace;
+  font-size: 10px;
 }
 
 .metric-item {
@@ -1038,5 +1074,13 @@ tbody tr:hover {
   .primary-button {
     width: 100%;
   }
-}
 
+  .import-error {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .import-error span {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+}

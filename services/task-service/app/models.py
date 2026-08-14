@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -69,3 +70,39 @@ class JobRecord(ApiModel):
     created_at: datetime
     updated_at: datetime
 
+
+class AssetRecord(ApiModel):
+    id: str
+    project_id: str
+    name: str
+    relative_path: str
+    media_type: str
+    size: int
+    sha256: str
+    parent_asset_id: str | None = None
+    created_at: datetime
+
+
+class PreviewColumn(ApiModel):
+    name: str
+    inferred_type: str
+    null_count: int
+
+
+class TablePreview(ApiModel):
+    asset_id: str
+    source_name: str
+    format: str
+    encoding: str | None = None
+    sheet_name: str | None = None
+    row_count: int
+    column_count: int
+    columns: list[PreviewColumn]
+    rows: list[dict[str, Any]]
+
+
+class ImportResult(ApiModel):
+    imported_assets: list[AssetRecord]
+    preview: TablePreview | None = None
+    extracted_count: int = 0
+    warnings: list[str] = Field(default_factory=list)

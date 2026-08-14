@@ -8,6 +8,7 @@ from uuid import uuid4
 
 from app.errors import file_access_error, job_not_found, project_not_found
 from app.models import (
+    AssetRecord,
     JobCreate,
     JobRecord,
     JobStatus,
@@ -65,6 +66,23 @@ class WorkspaceStore:
 
                 CREATE INDEX IF NOT EXISTS idx_jobs_project_id
                 ON jobs(project_id, updated_at DESC);
+
+                CREATE TABLE IF NOT EXISTS assets (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    relative_path TEXT NOT NULL,
+                    media_type TEXT NOT NULL,
+                    size INTEGER NOT NULL,
+                    sha256 TEXT NOT NULL,
+                    parent_asset_id TEXT,
+                    created_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(id),
+                    FOREIGN KEY(parent_asset_id) REFERENCES assets(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_assets_project_id
+                ON assets(project_id, created_at DESC);
                 """
             )
 
@@ -138,6 +156,17 @@ class WorkspaceStore:
                 """
             ).fetchall()
         return [self._project_from_row(row) for row in rows]
+
+    def get_or_create_default_project(self) -> ProjectRecord:
+        projects = self.list_projects()
+        if projects:
+            return projects[0]
+
+        projects_dir = self.data_dir / "projects"
+        projects_dir.mkdir(parents=True, exist_ok=True)
+        return self.create_project(
+            ProjectCreate(name="本地数据工作区", path=str(projects_dir / "default"))
+        )
 
     def get_project(self, project_id: str) -> ProjectRecord:
         with self._connect() as connection:
@@ -240,6 +269,66 @@ class WorkspaceStore:
             raise job_not_found(job_id)
         return self._job_from_row(row)
 
+    def create_asset(
+        self,
+        project_id: str,
+        name: str,
+        relative_path: str,
+        media_type: str,
+        size: int,
+        sha256: str,
+        parent_asset_id: str | None = None,
+    ) -> AssetRecord:
+        self.get_project(project_id)
+        record = AssetRecord(
+            id=f"asset-{uuid4().hex}",
+            project_id=project_id,
+            name=name,
+            relative_path=relative_path,
+            media_type=media_type,
+            size=size,
+            sha256=sha256,
+            parent_asset_id=parent_asset_id,
+            created_at=utc_now(),
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO assets(
+                    id, project_id, name, relative_path, media_type, size,
+                    sha256, parent_asset_id, created_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id,
+                    record.project_id,
+                    record.name,
+                    record.relative_path,
+                    record.media_type,
+                    record.size,
+                    record.sha256,
+                    record.parent_asset_id,
+                    record.created_at.isoformat(),
+                ),
+            )
+        return record
+
+    def list_assets(self, project_id: str) -> list[AssetRecord]:
+        self.get_project(project_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, name, relative_path, media_type, size,
+                       sha256, parent_asset_id, created_at
+                FROM assets
+                WHERE project_id = ?
+                ORDER BY created_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._asset_from_row(row) for row in rows]
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row
@@ -269,3 +358,16 @@ class WorkspaceStore:
             updated_at=datetime.fromisoformat(row["updated_at"]),
         )
 
+    @staticmethod
+    def _asset_from_row(row: sqlite3.Row) -> AssetRecord:
+        return AssetRecord(
+            id=row["id"],
+            project_id=row["project_id"],
+            name=row["name"],
+            relative_path=row["relative_path"],
+            media_type=row["media_type"],
+            size=row["size"],
+            sha256=row["sha256"],
+            parent_asset_id=row["parent_asset_id"],
+            created_at=datetime.fromisoformat(row["created_at"]),
+        )
