@@ -7,6 +7,8 @@
   "scripts": {
     "dev": "pnpm --filter @ml-gui/web dev",
     "build": "pnpm --filter @ml-gui/contracts build && pnpm --filter @ml-gui/web build",
+    "desktop:dev": "pnpm --filter @ml-gui/desktop tauri dev",
+    "desktop:build": "pnpm --filter @ml-gui/desktop tauri build --no-bundle",
     "typecheck": "pnpm --filter @ml-gui/contracts typecheck && pnpm --filter @ml-gui/web typecheck",
     "test": "pnpm --filter @ml-gui/web test"
   }

@@ -1,0 +1,40 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "MachingLearing GUI",
+  "version": "0.1.0",
+  "identifier": "com.kuroneko.machinglearinggui",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @ml-gui/web dev",
+    "devUrl": "http://127.0.0.1:5173",
+    "beforeBuildCommand": "pnpm --filter @ml-gui/web build",
+    "frontendDist": "../../web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "label": "main",
+        "create": false,
+        "title": "MachingLearing GUI",
+        "width": 1440,
+        "height": 900,
+        "minWidth": 920,
+        "minHeight": 640,
+        "resizable": true,
+        "center": true,
+        "backgroundColor": "#f4f5f7"
+      }
+    ],
+    "security": {
+      "csp": "default-src 'self'; img-src 'self' asset: http://asset.localhost data:; style-src 'self' 'unsafe-inline'; connect-src 'self' http://127.0.0.1:8765 ws://127.0.0.1:8765"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

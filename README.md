@@ -6,7 +6,7 @@
 
 本项目用于构建一个本地优先的数据解析和机器学习桌面工作台。用户可以导入表格、文档和压缩文件，在统一界面中完成文件解析、数据检查、数据清洗、模型训练、结果预览和文件导出。桌面版本优先支持 Windows，后续复用同一套前端和接口扩展为本地 Web 版本及云端版本。
 
-项目第一阶段只输出设计文档，不输出可执行程序和源代码。本文件是当前仓库唯一需要维护的 Markdown 文档。
+当前仓库已经进入可运行原型阶段，包含 React 工作台、Python Task Service 和 Tauri 桌面外壳。本文件是当前仓库唯一需要维护的 Markdown 文档。
 
 ## 输入文件格式
 
@@ -417,6 +417,42 @@ LocalWorkspaceClient 连接本机 Python Task Service，文件保存在本地项
 模型权重、OCR 权重和大型 CUDA 依赖不应全部无条件塞入基础安装包。需要划分基础组件和可选运行组件，并在设置中显示下载大小、版本和安装位置。
 
 正式分发需要 Windows 代码签名、版本号、安装日志、崩溃日志导出和升级策略。便携版可以用于内部测试，面向普通用户优先提供安装程序。
+
+## 当前原型运行方式
+
+开发工具需要 Node.js, pnpm 10, Rust stable 和 D:\Python\python11。首次运行前在仓库根目录执行 pnpm install，并在 services\task-service 目录安装 pyproject.toml 中声明的 Python 依赖。
+
+启动本地任务服务。
+
+```powershell
+Set-Location services\task-service
+D:\Python\python11\python.exe -m uvicorn app.main:app --host 127.0.0.1 --port 8765
+```
+
+启动本地 Web 工作台。
+
+```powershell
+Set-Location F:\CodeX
+pnpm dev
+```
+
+启动桌面开发窗口。
+
+```powershell
+Set-Location F:\CodeX
+pnpm desktop:dev
+```
+
+生成不带安装器的 Windows exe。
+
+```powershell
+Set-Location F:\CodeX
+pnpm desktop:build
+```
+
+构建后的 exe 位于 apps\desktop\src-tauri\target\release。当前 exe 复用本机运行的 Python Task Service，后续发布阶段再把 Python 服务打包为 sidecar，并由桌面主进程统一启动和关闭。
+
+默认情况下 WebView 数据保存在当前用户的应用数据目录。受限环境或便携测试可以在启动前设置 ML_GUI_WEBVIEW_DATA_DIR，将缓存和本地存储写入指定的可写目录。
 
 ## Git 开发规则
 
