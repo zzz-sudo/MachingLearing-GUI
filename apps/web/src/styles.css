@@ -139,6 +139,73 @@ textarea:focus-visible {
   margin-top: auto;
 }
 
+.update-overlay {
+  position: fixed;
+  z-index: 20;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgb(25 29 33 / 38%);
+}
+
+.update-dialog {
+  width: min(440px, 100%);
+  max-height: min(520px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--line-strong);
+  border-radius: 7px;
+  background: var(--surface);
+  box-shadow: 0 18px 50px rgb(24 28 32 / 24%);
+}
+
+.update-dialog-header,
+.update-dialog-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+}
+
+.update-dialog-header {
+  border-bottom: 1px solid var(--line);
+}
+
+.update-dialog-header h2 {
+  margin: 0;
+  font-size: 16px;
+  letter-spacing: 0;
+}
+
+.update-dialog-body {
+  min-height: 132px;
+  padding: 16px;
+}
+
+.update-message {
+  min-height: 42px;
+  margin-top: 14px;
+  padding: 11px 12px;
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  background: var(--surface-soft);
+  color: var(--muted);
+  font-size: 12px;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.update-message[data-status="error"] {
+  border-color: #d8b3af;
+  color: var(--red);
+}
+
+.update-dialog-actions {
+  justify-content: flex-end;
+  border-top: 1px solid var(--line);
+}
+
 .workspace-panels {
   min-width: 0;
   height: 100%;

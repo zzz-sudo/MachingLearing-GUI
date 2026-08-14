@@ -11,6 +11,10 @@
     "desktop:sidecar": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_sidecar.ps1",
     "desktop:build": "pnpm desktop:sidecar && pnpm --filter @ml-gui/desktop tauri build",
     "desktop:build:portable": "pnpm desktop:sidecar && pnpm --filter @ml-gui/desktop tauri build --no-bundle",
+    "release:version": "python scripts/release_version.py",
+    "release:check": "python scripts/release_version.py --check",
+    "release:licenses": ".runtime\\sidecar-venv\\Scripts\\python.exe scripts/generate_third_party_licenses.py",
+    "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_release.ps1",
     "typecheck": "pnpm --filter @ml-gui/contracts typecheck && pnpm --filter @ml-gui/web typecheck",
     "test": "pnpm --filter @ml-gui/web test"
   }

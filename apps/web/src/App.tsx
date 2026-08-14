@@ -20,6 +20,7 @@ import {
   ChevronRight,
   CircleStop,
   Database,
+  Download,
   FileSpreadsheet,
   FileText,
   Folder,
@@ -36,6 +37,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Wrench,
+  X,
 } from "lucide-react";
 import {
   Panel,
@@ -88,6 +90,7 @@ export function App() {
   const [confirming, setConfirming] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<WorkspaceError | null>(null);
+  const [updateCenterOpen, setUpdateCenterOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -221,7 +224,11 @@ export function App() {
           event.target.value = "";
         }}
       />
-      <GlobalRail activeItem={activeRail} onChange={setActiveRail} />
+      <GlobalRail
+        activeItem={activeRail}
+        onChange={setActiveRail}
+        onOpenUpdateCenter={() => setUpdateCenterOpen(true)}
+      />
 
       <PanelGroup direction="horizontal" className="workspace-panels">
         <Panel defaultSize={19} minSize={15} maxSize={28}>
@@ -289,6 +296,7 @@ export function App() {
           />
         </Panel>
       </PanelGroup>
+      {updateCenterOpen ? <UpdateCenter onClose={() => setUpdateCenterOpen(false)} /> : null}
     </div>
   );
 }
@@ -296,9 +304,10 @@ export function App() {
 type GlobalRailProps = {
   activeItem: string;
   onChange: (item: string) => void;
+  onOpenUpdateCenter: () => void;
 };
 
-function GlobalRail({ activeItem, onChange }: GlobalRailProps) {
+function GlobalRail({ activeItem, onChange, onOpenUpdateCenter }: GlobalRailProps) {
   return (
     <nav className="global-rail" aria-label="全局导航">
       <button className="brand-button" title="MachingLearing GUI" type="button">
@@ -324,11 +333,132 @@ function GlobalRail({ activeItem, onChange }: GlobalRailProps) {
         })}
       </div>
 
-      <button className="rail-button rail-settings" title="设置" type="button">
+      <button
+        className="rail-button rail-settings"
+        title="设置和版本升级"
+        type="button"
+        onClick={onOpenUpdateCenter}
+      >
         <Settings aria-hidden="true" size={19} strokeWidth={1.8} />
-        <span className="sr-only">设置</span>
+        <span className="sr-only">设置和版本升级</span>
       </button>
     </nav>
+  );
+}
+
+type UpdateStatus = "idle" | "checking" | "available" | "current" | "installing" | "error";
+
+function UpdateCenter({ onClose }: { onClose: () => void }) {
+  const [applicationVersion, setApplicationVersion] = useState("Web 预览");
+  const [availableVersion, setAvailableVersion] = useState<string | null>(null);
+  const [status, setStatus] = useState<UpdateStatus>("idle");
+  const [message, setMessage] = useState("尚未检查更新");
+  const pendingUpdate = useRef<{
+    version: string;
+    downloadAndInstall: () => Promise<void>;
+  } | null>(null);
+
+  useEffect(() => {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      return;
+    }
+    void import("@tauri-apps/api/app")
+      .then(({ getVersion }) => getVersion())
+      .then(setApplicationVersion)
+      .catch((error: unknown) => {
+        setStatus("error");
+        setMessage(error instanceof Error ? error.message : "无法读取应用版本");
+      });
+  }, []);
+
+  async function checkForUpdate() {
+    if (!("__TAURI_INTERNALS__" in window)) {
+      setStatus("error");
+      setMessage("Web 预览不执行桌面升级，请在 Windows 桌面应用中检查");
+      return;
+    }
+    setStatus("checking");
+    setMessage("正在连接 GitHub Release");
+    try {
+      const { check } = await import("@tauri-apps/plugin-updater");
+      const update = await check();
+      pendingUpdate.current = update;
+      if (update) {
+        setAvailableVersion(update.version);
+        setStatus("available");
+        setMessage(`发现版本 ${update.version}`);
+      } else {
+        setAvailableVersion(null);
+        setStatus("current");
+        setMessage("当前已经是最新版本");
+      }
+    } catch (error: unknown) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "更新检查失败");
+    }
+  }
+
+  async function installUpdate() {
+    const update = pendingUpdate.current;
+    if (!update) {
+      return;
+    }
+    setStatus("installing");
+    setMessage("正在下载并安装更新");
+    try {
+      await update.downloadAndInstall();
+      const { relaunch } = await import("@tauri-apps/plugin-process");
+      await relaunch();
+    } catch (error: unknown) {
+      setStatus("error");
+      setMessage(error instanceof Error ? error.message : "更新安装失败");
+    }
+  }
+
+  return (
+    <div className="update-overlay" role="presentation" onMouseDown={onClose}>
+      <section
+        aria-labelledby="update-center-title"
+        aria-modal="true"
+        className="update-dialog"
+        role="dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="update-dialog-header">
+          <div>
+            <span className="section-kicker">桌面应用</span>
+            <h2 id="update-center-title">版本升级</h2>
+          </div>
+          <button className="icon-button" title="关闭" type="button" onClick={onClose}>
+            <X aria-hidden="true" size={17} />
+            <span className="sr-only">关闭</span>
+          </button>
+        </header>
+        <div className="update-dialog-body">
+          <PropertyRow label="当前版本" value={applicationVersion} />
+          {availableVersion ? <PropertyRow label="可用版本" value={availableVersion} /> : null}
+          <div className="update-message" data-status={status}>{message}</div>
+        </div>
+        <footer className="update-dialog-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>关闭</button>
+          {status === "available" ? (
+            <button className="primary-button" type="button" onClick={() => void installUpdate()}>
+              <Download aria-hidden="true" size={15} />
+              下载并安装
+            </button>
+          ) : (
+            <button
+              className="primary-button"
+              disabled={status === "checking" || status === "installing"}
+              type="button"
+              onClick={() => void checkForUpdate()}
+            >
+              检查更新
+            </button>
+          )}
+        </footer>
+      </section>
+    </div>
   );
 }
 

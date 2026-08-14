@@ -15,6 +15,7 @@ coverage/
 /apps/desktop/src-tauri/binaries/*
 !/apps/desktop/src-tauri/binaries/.gitkeep
 /.runtime/
+/apps/desktop/src-tauri/tauri.release.local.conf.json
 /services/task-service/data/
 /services/task-service/build/
 /services/task-service/*.egg-info/

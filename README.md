@@ -582,3 +582,58 @@ https://github.com/zzz-sudo/MachingLearing-GUI.git
 10. OpenClaw 使用受控工具读取指标，不直接访问任意文件。
 11. 用户导出预测 XLSX，中文字段和内容保持正确编码。
 12. 关闭并重新打开应用后，项目、任务、模型和结果仍可恢复。
+
+## Windows 签名、版本和升级发布
+
+正式发布分成两种彼此独立的签名。Windows Authenticode 使用受信任代码签名证书为主程序、sidecar 和 NSIS 安装程序签名，用于证明发布者身份并降低 Windows SmartScreen 的未知发布者提示。Tauri Updater 使用独立的 minisign 密钥为更新产物签名，用于防止更新文件在下载或托管过程中被替换。两类密钥用途不同，不能相互替代。
+
+仓库只保存 Tauri Updater 公钥，路径为 `apps/desktop/src-tauri/tauri.release.conf.json`。本机生成的更新私钥位于 `.runtime/updater.key`，该目录已被 Git 忽略，不得提交、打印到日志或放入安装包。首次配置 GitHub 发布环境时，需要把该文件完整内容写入仓库 Secret `TAURI_SIGNING_PRIVATE_KEY`。当前密钥没有密码，因此 `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` 可以为空；正式生产发布前建议重新生成带密码的密钥，同时替换配置中的公钥，并把密码写入同名 GitHub Secret。已经发布更新后不能随意更换更新公钥，否则旧版本客户端无法验证新更新。
+
+Windows 代码签名需要配置以下 GitHub Secrets。
+
+- `WINDOWS_CERTIFICATE_BASE64`: PFX 证书文件的 Base64 内容，不是证书路径。
+- `WINDOWS_CERTIFICATE_PASSWORD`: PFX 导出密码。
+- `TAURI_SIGNING_PRIVATE_KEY`: Tauri Updater 私钥完整内容。
+- `TAURI_SIGNING_PRIVATE_KEY_PASSWORD`: 更新私钥密码，无密码密钥可留空。
+
+正式构建通过 `scripts/sign_windows.ps1` 临时解码 PFX，调用 Windows SDK 的 `signtool.exe` 使用 SHA-256 和 RFC 3161 时间戳完成签名，然后在 `finally` 中删除临时证书。Tauri 的 `signCommand` 会依次覆盖 Python sidecar、主程序和安装程序。缺少证书、密码、待签名文件或 Signing Tools 时，脚本会输出明确的 `WindowsCertificateMissingError`、`WindowsCertificatePasswordMissingError`、`WindowsSigningTargetMissingError` 或 `WindowsSignToolMissingError`。普通 `pnpm desktop:build` 不要求证书，只有 `pnpm release:build` 和标签发布使用正式签名配置。
+
+### 统一版本管理
+
+版本号必须使用 SemVer 格式，并在根工作区、Web、桌面 npm 包、共享契约、Python 服务、Cargo 包和 Tauri 配置中完全一致。不要逐个手工修改这些文件。升级版本时执行以下命令。
+
+```powershell
+pnpm release:version -- 0.2.0
+pnpm release:check
+```
+
+`scripts/release_version.py` 使用结构化 JSON 读取和受 TOML section 限定的版本字段替换。版本不一致时返回 `VersionMismatchError`，版本格式错误时返回 `InvalidSemanticVersionError`，Git 标签与项目版本不一致时返回 `ReleaseTagMismatchError`。完成版本变更、测试和审核后创建与版本一致的标签，例如 `v0.2.0`。推送标签会触发 `.github/workflows/release-windows.yml`，构建 sidecar、生成许可证清单、执行两类签名、发布 NSIS 安装包、更新签名和 `latest.json`。
+
+桌面界面左下角的设置按钮打开版本升级窗口。客户端从 GitHub Release 的 `latest.json` 检查版本，发现新版本后下载并验证 Tauri 更新签名，以被动模式运行 NSIS 更新，然后重启应用。Web 预览只显示当前运行形态，不执行桌面安装操作。正式环境只使用 HTTPS 更新端点。
+
+### 安装包许可证清单
+
+`scripts/generate_third_party_licenses.py` 从三个真实构建来源生成许可证清单，而不是维护一份容易过期的手工表格。
+
+- Node 依赖来自 `pnpm licenses list --prod --json`。
+- Python 依赖来自 sidecar 隔离环境的 `pip inspect`，并沿 Task Service 运行时依赖关系收集。
+- Rust 依赖来自锁定的 `Cargo.lock` 和 `cargo metadata --locked`。
+
+生成文件为 `apps/desktop/src-tauri/resources/licenses/THIRD_PARTY_LICENSES.json` 和 `THIRD_PARTY_NOTICES.txt`，构建时作为 Tauri resource 放入安装目录。JSON 文件用于自动审计，TXT 文件用于安装后人工查看。执行顺序如下。
+
+```powershell
+pnpm desktop:sidecar
+pnpm release:licenses
+```
+
+当前 PDF 解析依赖 PyMuPDF。其许可证元数据明确为 GNU AGPL 3.0 或 Artifex 商业许可证，因此生成器会把它列入 `manualReview`。在公开分发 Windows 安装包前，必须选择并落实 AGPL 整体合规方案，或者取得 Artifex 商业许可证。许可证清单本身不能替代这个决定。任何 `UNKNOWN` 许可证也会阻止把清单视为已经完成法律审核。
+
+### 发布验证顺序
+
+1. 执行版本同步和 `pnpm release:check`。
+2. 执行 `pnpm install --frozen-lockfile`、`pnpm typecheck` 和 `pnpm test`。
+3. 构建 sidecar 并执行 `pnpm release:licenses`，检查 `manualReview`。
+4. 在有 PFX、更新私钥和 Windows SDK 的隔离环境执行 `pnpm release:build`。
+5. 使用 `Get-AuthenticodeSignature` 检查主程序、sidecar 和安装程序的签名状态与发布者。
+6. 在没有开发环境的 Windows 用户账户执行安装、启动、更新、重启和卸载测试。
+7. 推送与版本一致的 Git 标签，确认 GitHub Release 同时包含安装程序、更新签名和 `latest.json`。
