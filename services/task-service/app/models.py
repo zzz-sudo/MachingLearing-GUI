@@ -101,9 +101,30 @@ class TablePreview(ApiModel):
     rows: list[dict[str, Any]]
 
 
+class DocumentPage(ApiModel):
+    page_number: int
+    text: str
+    needs_ocr: bool
+
+
+class DocumentParseResult(ApiModel):
+    asset_id: str
+    pdf_type: str
+    engine: str
+    status: str
+    page_count: int
+    ocr_pages: list[int]
+    pages_needing_ocr: list[int]
+    markdown_relative_path: str | None = None
+    json_relative_path: str
+    markdown_preview: str
+    pages: list[DocumentPage]
+
+
 class ImportResult(ApiModel):
     imported_assets: list[AssetRecord]
     preview: TablePreview | None = None
+    document: DocumentParseResult | None = None
     extracted_count: int = 0
     warnings: list[str] = Field(default_factory=list)
 

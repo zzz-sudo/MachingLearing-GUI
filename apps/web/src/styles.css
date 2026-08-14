@@ -1067,6 +1067,29 @@ tbody tr:hover {
   font-size: 10px;
 }
 
+.document-preview-section pre {
+  max-height: 360px;
+  margin: 0;
+  padding: 16px;
+  overflow: auto;
+  white-space: pre-wrap;
+  color: var(--text);
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.document-ocr-state {
+  display: flex;
+  min-height: 160px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
 @media (max-width: 1180px) {
   .metrics-strip {
     grid-template-columns: repeat(2, minmax(0, 1fr));

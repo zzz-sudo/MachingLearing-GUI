@@ -2,6 +2,12 @@
 
 作者: Kuroneko
 
+功能: 本地优先的数据导入、文档解析、字段确认、数据集版本管理、机器学习训练和结果导出工作台。
+
+输入文件: csv, xlsx, pdf, zip, tar, tgz, gz。后续扩展 docx, pptx, md, html, parquet 和常用图片格式。
+
+输出文件: Parquet 数据集、Markdown 文档、JSON 结构化结果、模型文件、预测文件和 Windows 桌面程序。
+
 ## 项目说明
 
 本项目用于构建一个本地优先的数据解析和机器学习桌面工作台。用户可以导入表格、文档和压缩文件，在统一界面中完成文件解析、数据检查、数据清洗、模型训练、结果预览和文件导出。桌面版本优先支持 Windows，后续复用同一套前端和接口扩展为本地 Web 版本及云端版本。
@@ -271,7 +277,21 @@ XLSX 不能只按文本文件处理。导入后先读取工作簿结构，再由
 
 ## PDF 和文档解析设计
 
-PDF 主解析器规划使用 Docling，用于页面布局、阅读顺序、表格、公式、图片和 OCR。MarkItDown 可以作为生成 LLM 文本上下文的轻量转换器，但不能替代页面坐标和结构化表格结果。
+PDF 需要先分类再解析，不能把所有文件交给同一个高成本 OCR 流程。当前实现先使用 PyMuPDF 检查每一页的文本层。存在足够文本层的页面直接提取，缺少文本层的页面渲染为二倍分辨率图像，再交给 RapidOCR 的本地 ONNX 模型识别。文档最终分类为 text_based, scanned 或 mixed，并分别记录 ocrPages 和 pagesNeedingOcr。前者表示已经执行 OCR 的页面，后者表示 OCR 后仍然没有可用文本的页面。
+
+当前实现的输出包括 UTF-8 Markdown、结构化 JSON、页面文本、页码、解析引擎、分类状态和 OCR 路由结果。Markdown 和 JSON 保存到项目 documents 目录，结果同时写入 SQLite。应用刷新后可以按照 Asset 标识恢复文档预览，不需要重新解析原始 PDF。
+
+开源组件的职责划分如下。
+
+| 组件 | 项目地址 | 适合职责 | 当前选择 |
+| --- | --- | --- | --- |
+| pdf-inspector | https://github.com/firecrawl/pdf-inspector | 快速判断文字型、扫描型、图片型和混合型 PDF，并提供页级 OCR 路由 | 作为后续分类器候选。Python 绑定当前需要 Rust 和 Maturin 从源码构建，Windows 普通用户分发前不作为硬依赖 |
+| PyMuPDF | https://github.com/pymupdf/PyMuPDF | 文本层提取、页面渲染、坐标和基础表格检测 | 当前数字 PDF 提取器和页面渲染器 |
+| RapidOCR | https://github.com/RapidAI/RapidOCR | 本地中文和英文 OCR，使用 ONNX Runtime 执行 | 当前扫描页 OCR 引擎 |
+| Docling | https://github.com/docling-project/docling | 复杂版面、阅读顺序、表格、公式、图片和多种办公文档 | 后续复杂文档 Worker，不放入基础界面的同步请求 |
+| MarkItDown | https://github.com/microsoft/markitdown | docx, pptx, xlsx, html, txt, md 和 PDF 的轻量 Markdown 转换 | 后续 Word、PPTX、HTML 和 Markdown 的快速文本通道 |
+
+pdf-inspector 的分类能力适合放到统一 DocumentRouter 后面。桌面版可以在 Rust 主进程中调用它，也可以构建独立 sidecar。无论以后替换分类器还是增加 Docling，前端继续只读取 DocumentParseResult，避免界面直接耦合具体解析库。Docling 负责需要页面结构和表格准确性的任务，MarkItDown 负责只需要搜索和对话上下文的轻量任务。这样可以同时控制安装体积、解析速度和结果质量。
 
 PDF 解析产物包括以下内容。
 
@@ -456,7 +476,7 @@ pnpm desktop:build
 
 ## 当前文件导入能力
 
-工作台已经接入真实的本地文件导入接口。左侧栏的导入按钮支持 csv, xlsx, zip, tar, tgz 和 gz。浏览器以原始二进制请求体上传文件，文件名通过 UTF-8 URL 编码请求头传递，不依赖 multipart 对中文文件名进行二次转换。
+工作台已经接入真实的本地文件导入接口。左侧栏的导入按钮支持 csv, xlsx, pdf, zip, tar, tgz 和 gz。浏览器以原始二进制请求体上传文件，文件名通过 UTF-8 URL 编码请求头传递，不依赖 multipart 对中文文件名进行二次转换。
 
 导入普通 CSV 或 XLSX 时，服务会把原始文件保存到项目 source 目录，计算 SHA-256，写入 assets 元数据表，并返回最多 100 行的数据预览。CSV 按 BOM、严格 UTF-8、GB18030 和编码检测结果的顺序识别编码。XLSX 当前读取第一个工作表，保留数值、布尔值和日期等单元格类型。
 
@@ -465,6 +485,27 @@ pnpm desktop:build
 当前版本已经实现表格预览持久化。刷新应用后，前端会从 SQLite 读取最新可预览资产并恢复表格。右侧字段确认区允许把每个字段设为 text, integer, number 或 boolean。确认后生成不可变的 DatasetVersion，并在项目 datasets 目录写入使用 Zstandard 压缩的 Parquet 文件。同一源资产再次确认会生成递增版本，不覆盖之前的数据集文件。
 
 Parquet 下载接口按数据集版本返回对应文件。字段转换失败时返回 DatasetSchemaError，错误详情包含行号、字段名、目标类型和原始值，不会静默把无效数值改为空值。
+
+PDF 导入会自动区分数字 PDF、扫描 PDF 和混合 PDF。数字页使用 PyMuPDF 直接提取，扫描页使用 RapidOCR 本地识别，混合 PDF 只对缺少文本层的页面执行 OCR。解析结果保存为 UTF-8 Markdown 和 JSON，并可以在刷新后恢复到中间预览区。OCR 运行完全在本机完成，当前流程不上传原始文档到外部服务。
+
+## 案例文件和完整测试
+
+可直接从 GUI 导入的案例文件位于 services/task-service/tests/fixtures。
+
+- chinese_sales_utf8.csv: UTF-8 中文表格，用于字段类型确认和 Parquet 版本导出。
+- chinese_sales.xlsx: 中文 Sheet 和布尔字段，用于 XLSX 预览。
+- chinese_archive.zip: 包含 GB18030 中文 CSV 和中文路径，用于解压、父子资产和乱码测试。
+- digital_chinese_report.pdf: 包含可提取中文文本层的数字 PDF。
+- scanned_chinese_report.pdf: 只有中文图像的扫描 PDF，用于 RapidOCR 测试。
+- mixed_chinese_report.pdf: 第一页为文字层，第二页为扫描图像，用于按页 OCR 路由测试。
+
+二进制案例由 tests/build_pdf_fixtures.py 可重复生成。该脚本只生成测试数据，不写入用户项目目录。完整后端测试覆盖项目持久化、中文文件名、UTF-8、GB18030、XLSX、压缩包安全边界、表格预览恢复、字段确认、递增数据集版本、Parquet 下载、数字 PDF、扫描 PDF 和混合 PDF。
+
+```powershell
+Set-Location F:\CodeX\services\task-service
+D:\Python\python11\python.exe tests\build_pdf_fixtures.py
+D:\Python\python11\python.exe -m pytest -q
+```
 
 ## Git 开发规则
 

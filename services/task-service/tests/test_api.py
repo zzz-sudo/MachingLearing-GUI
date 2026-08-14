@@ -1,13 +1,12 @@
 from __future__ import annotations
 
-import json
 import io
+import json
 import zipfile
 from pathlib import Path
 from urllib.parse import quote
 
 from fastapi.testclient import TestClient
-from openpyxl import Workbook
 import pyarrow.parquet as parquet
 
 from app.main import create_app
@@ -116,6 +115,15 @@ def test_missing_project_returns_structured_error(tmp_path: Path) -> None:
     assert response.json()["operation"] == "project_get"
 
 
+def test_missing_document_result_returns_structured_error(tmp_path: Path) -> None:
+    with create_test_client(tmp_path) as client:
+        response = client.get("/api/assets/asset-missing/document")
+
+    assert response.status_code == 404
+    assert response.json()["errorType"] == "DocumentResultNotFoundError"
+    assert response.json()["operation"] == "document_get"
+
+
 def test_import_gb18030_csv_preserves_chinese_and_profiles_columns(
     tmp_path: Path,
 ) -> None:
@@ -142,14 +150,7 @@ def test_import_gb18030_csv_preserves_chinese_and_profiles_columns(
 
 
 def test_import_xlsx_returns_first_sheet_preview(tmp_path: Path) -> None:
-    workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "销售数据"
-    worksheet.append(["日期", "销量", "是否促销"])
-    worksheet.append(["2026-08-01", 32, True])
-    worksheet.append(["2026-08-02", 48, False])
-    content = io.BytesIO()
-    workbook.save(content)
+    fixture = Path(__file__).parent / "fixtures" / "chinese_sales.xlsx"
     project_path = tmp_path / "xlsx-project"
 
     with create_test_client(tmp_path) as client:
@@ -157,8 +158,8 @@ def test_import_xlsx_returns_first_sheet_preview(tmp_path: Path) -> None:
         response = import_file(
             client,
             str(project["id"]),
-            "销售预测.xlsx",
-            content.getvalue(),
+            fixture.name,
+            fixture.read_bytes(),
         )
 
     assert response.status_code == 201
@@ -170,9 +171,7 @@ def test_import_xlsx_returns_first_sheet_preview(tmp_path: Path) -> None:
 
 
 def test_import_zip_extracts_csv_and_records_asset_relationship(tmp_path: Path) -> None:
-    archive = io.BytesIO()
-    with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED) as output:
-        output.writestr("数据/区域销售.csv", "区域,金额\n华东,120.5\n".encode("utf-8"))
+    fixture = Path(__file__).parent / "fixtures" / "chinese_archive.zip"
     project_path = tmp_path / "zip-project"
 
     with create_test_client(tmp_path) as client:
@@ -180,8 +179,8 @@ def test_import_zip_extracts_csv_and_records_asset_relationship(tmp_path: Path) 
         response = import_file(
             client,
             str(project["id"]),
-            "补充数据.zip",
-            archive.getvalue(),
+            fixture.name,
+            fixture.read_bytes(),
         )
 
     assert response.status_code == 201
@@ -189,6 +188,7 @@ def test_import_zip_extracts_csv_and_records_asset_relationship(tmp_path: Path) 
     assert result["extractedCount"] == 1
     assert len(result["importedAssets"]) == 2
     assert result["importedAssets"][1]["parentAssetId"] == result["importedAssets"][0]["id"]
+    assert result["preview"]["encoding"] == "gb18030"
     assert result["preview"]["rows"][0]["区域"] == "华东"
     assert list((project_path / "extracted").rglob("区域销售.csv"))
 
@@ -246,3 +246,54 @@ def test_confirm_fields_persists_preview_and_exports_versioned_parquet(tmp_path:
     assert table.num_rows == 3
     assert table.column("销量").to_pylist() == [18, 25, 31]
     assert table.column("是否促销").to_pylist() == [True, False, True]
+
+
+def test_import_digital_pdf_extracts_markdown_and_persists_result(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "digital_chinese_report.pdf"
+    project_path = tmp_path / "digital-pdf-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        imported = import_file(client, str(project["id"]), fixture.name, fixture.read_bytes())
+        result = imported.json()["document"]
+        restored = client.get(f"/api/assets/{result['assetId']}/document")
+
+    assert imported.status_code == 201
+    assert result["pdfType"] == "text_based"
+    assert result["status"] == "parsed"
+    assert "上海区域销量" in result["markdownPreview"]
+    assert restored.json()["engine"] == "pymupdf"
+    assert (project_path / result["markdownRelativePath"]).is_file()
+    assert (project_path / result["jsonRelativePath"]).is_file()
+
+
+def test_import_scanned_pdf_routes_page_to_ocr(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "scanned_chinese_report.pdf"
+    project_path = tmp_path / "scanned-pdf-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        imported = import_file(client, str(project["id"]), fixture.name, fixture.read_bytes())
+
+    result = imported.json()["document"]
+    assert result["pdfType"] == "scanned"
+    assert result["status"] == "parsed"
+    assert result["engine"] == "pymupdf+rapidocr"
+    assert result["ocrPages"] == [1]
+    assert result["pagesNeedingOcr"] == []
+    assert "扫描 PDF 测试报告" in result["markdownPreview"]
+    assert (project_path / result["markdownRelativePath"]).is_file()
+
+
+def test_import_mixed_pdf_only_runs_ocr_for_image_page(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "mixed_chinese_report.pdf"
+    project_path = tmp_path / "mixed-pdf-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        imported = import_file(client, str(project["id"]), fixture.name, fixture.read_bytes())
+
+    result = imported.json()["document"]
+    assert result["pdfType"] == "mixed"
+    assert result["status"] == "parsed"
+    assert result["ocrPages"] == [2]
+    assert result["pagesNeedingOcr"] == []
+    assert "混合 PDF 第一页" in result["pages"][0]["text"]
+    assert "扫描 PDF 测试报告" in result["pages"][1]["text"]

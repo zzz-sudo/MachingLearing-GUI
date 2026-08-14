@@ -6,11 +6,12 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from app.errors import file_access_error, job_not_found, project_not_found
+from app.errors import document_result_not_found, file_access_error, job_not_found, project_not_found
 from app.models import (
     AssetRecord,
     DatasetColumnSpec,
     DatasetVersion,
+    DocumentParseResult,
     JobCreate,
     JobRecord,
     JobStatus,
@@ -106,6 +107,13 @@ class WorkspaceStore:
                     UNIQUE(source_asset_id, version),
                     FOREIGN KEY(project_id) REFERENCES projects(id),
                     FOREIGN KEY(source_asset_id) REFERENCES assets(id)
+                );
+
+                CREATE TABLE IF NOT EXISTS document_results (
+                    asset_id TEXT PRIMARY KEY,
+                    result_json TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(asset_id) REFERENCES assets(id)
                 );
                 """
             )
@@ -389,6 +397,28 @@ class WorkspaceStore:
         if row is None:
             raise job_not_found(asset_id)
         return TablePreview.model_validate_json(row["preview_json"])
+
+    def save_document_result(self, result: DocumentParseResult) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO document_results(asset_id, result_json, updated_at)
+                VALUES (?, ?, ?)
+                ON CONFLICT(asset_id) DO UPDATE SET
+                    result_json = excluded.result_json,
+                    updated_at = excluded.updated_at
+                """,
+                (result.asset_id, result.model_dump_json(by_alias=True), utc_now().isoformat()),
+            )
+
+    def get_document_result(self, asset_id: str) -> DocumentParseResult:
+        with self._connect() as connection:
+            row = connection.execute(
+                "SELECT result_json FROM document_results WHERE asset_id = ?", (asset_id,),
+            ).fetchone()
+        if row is None:
+            raise document_result_not_found(asset_id)
+        return DocumentParseResult.model_validate_json(row["result_json"])
 
     def create_dataset_version(
         self, project_id: str, source_asset_id: str, parquet_relative_path: str,

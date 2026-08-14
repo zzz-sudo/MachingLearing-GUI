@@ -61,9 +61,24 @@ export type TablePreview = {
   rows: Array<Record<string, unknown>>;
 };
 
+export type DocumentParseResult = {
+  assetId: string;
+  pdfType: "text_based" | "scanned" | "image_based" | "mixed";
+  engine: string;
+  status: "parsed" | "partial" | "ocr_required";
+  pageCount: number;
+  ocrPages: number[];
+  pagesNeedingOcr: number[];
+  markdownRelativePath?: string | null;
+  jsonRelativePath: string;
+  markdownPreview: string;
+  pages: Array<{ pageNumber: number; text: string; needsOcr: boolean }>;
+};
+
 export type ImportResult = {
   importedAssets: Asset[];
   preview?: TablePreview | null;
+  document?: DocumentParseResult | null;
   extractedCount: number;
   warnings: string[];
 };

@@ -19,13 +19,15 @@ from charset_normalizer import from_bytes
 from openpyxl import load_workbook
 
 from app.errors import WorkspaceServiceError, import_error
-from app.models import AssetRecord, ImportResult, PreviewColumn, TablePreview
+from app.documents import PdfDocumentService
+from app.models import AssetRecord, DocumentParseResult, ImportResult, PreviewColumn, TablePreview
 from app.storage import WorkspaceStore
 
 PREVIEW_ROW_LIMIT = 100
 MAX_ARCHIVE_FILES = 2000
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 TABLE_SUFFIXES = {".csv", ".xlsx"}
+DOCUMENT_SUFFIXES = {".pdf"}
 ARCHIVE_SUFFIXES = {".zip", ".tar", ".tgz", ".gz"}
 
 
@@ -58,6 +60,7 @@ class FileImporter:
         source_asset = self._record_asset(project_id, Path(project.path), source_path)
         imported_assets = [source_asset]
         preview: TablePreview | None = None
+        document: DocumentParseResult | None = None
         extracted_count = 0
 
         suffix = self._compound_suffix(source_path)
@@ -74,23 +77,30 @@ class FileImporter:
                 imported_assets.append(asset)
                 if preview is None and extracted_path.suffix.lower() in TABLE_SUFFIXES:
                     preview = self._preview_table(extracted_path, asset.id)
+                if document is None and extracted_path.suffix.lower() in DOCUMENT_SUFFIXES:
+                    document = PdfDocumentService().parse(extracted_path, asset.id, Path(project.path))
         elif source_path.suffix.lower() in TABLE_SUFFIXES:
             preview = self._preview_table(source_path, source_asset.id)
+        elif source_path.suffix.lower() in DOCUMENT_SUFFIXES:
+            document = PdfDocumentService().parse(source_path, source_asset.id, Path(project.path))
         else:
             raise import_error(
                 "UnsupportedFileFormatError",
                 f"当前版本不支持该文件格式: {source_path.suffix or safe_name}",
                 "file_import",
                 filename=safe_name,
-                supportedFormats=sorted(TABLE_SUFFIXES | ARCHIVE_SUFFIXES),
+                supportedFormats=sorted(TABLE_SUFFIXES | DOCUMENT_SUFFIXES | ARCHIVE_SUFFIXES),
             )
 
         if preview is not None:
             self.store.save_preview(preview)
+        if document is not None:
+            self.store.save_document_result(document)
 
         return ImportResult(
             imported_assets=imported_assets,
             preview=preview,
+            document=document,
             extracted_count=extracted_count,
         )
 

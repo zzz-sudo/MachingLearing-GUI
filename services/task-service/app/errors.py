@@ -54,6 +54,16 @@ def job_not_found(job_id: str) -> WorkspaceServiceError:
     )
 
 
+def document_result_not_found(asset_id: str) -> WorkspaceServiceError:
+    return WorkspaceServiceError(
+        error_type="DocumentResultNotFoundError",
+        message=f"未找到文档解析结果: {asset_id}",
+        operation="document_get",
+        status_code=404,
+        details={"assetId": asset_id},
+    )
+
+
 def import_error(
     error_type: str,
     message: str,

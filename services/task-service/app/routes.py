@@ -12,6 +12,7 @@ from app.models import (
     AssetRecord,
     DatasetCreate,
     DatasetVersion,
+    DocumentParseResult,
     ImportResult,
     JobCreate,
     JobRecord,
@@ -63,6 +64,11 @@ def list_assets(project_id: str, request: Request) -> list[AssetRecord]:
 @router.get("/assets/{asset_id}/preview", response_model=TablePreview)
 def get_asset_preview(asset_id: str, request: Request) -> TablePreview:
     return get_store(request).get_preview(asset_id)
+
+
+@router.get("/assets/{asset_id}/document", response_model=DocumentParseResult)
+def get_document_result(asset_id: str, request: Request) -> DocumentParseResult:
+    return get_store(request).get_document_result(asset_id)
 
 
 @router.get("/projects/{project_id}/datasets", response_model=list[DatasetVersion])

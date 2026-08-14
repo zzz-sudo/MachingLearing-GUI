@@ -3,6 +3,7 @@ import type {
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
+  DocumentParseResult,
   Job,
   Project,
   ServiceHealth,
@@ -82,6 +83,7 @@ export function App() {
   const [assets, setAssets] = useState<Asset[]>([]);
   const [preview, setPreview] = useState<TablePreview | null>(null);
   const [dataset, setDataset] = useState<DatasetVersion | null>(null);
+  const [documentResult, setDocumentResult] = useState<DocumentParseResult | null>(null);
   const [fieldTypes, setFieldTypes] = useState<Record<string, DatasetColumnSpec["dataType"]>>({});
   const [confirming, setConfirming] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -111,6 +113,15 @@ export function App() {
         const datasets = await workspaceClient.listDatasets(project.id);
         setDataset(datasets[0] ?? null);
         for (const asset of projectAssets) {
+          if (asset.name.toLowerCase().endsWith(".pdf")) {
+            try {
+              setDocumentResult(await workspaceClient.getDocument(asset.id));
+              setPreview(null);
+              break;
+            } catch {
+              // PDF assets without completed classification are skipped.
+            }
+          }
           try {
             const restoredPreview = await workspaceClient.getPreview(asset.id);
             setPreview(restoredPreview);
@@ -141,6 +152,7 @@ export function App() {
     try {
       const result = await workspaceClient.importFile(selectedProject.id, file);
       setPreview(result.preview ?? null);
+      setDocumentResult(result.document ?? null);
       setDataset(null);
       setFieldTypes(result.preview ? createInitialFieldTypes(result.preview) : {});
       setAssets(await workspaceClient.listAssets(selectedProject.id));
@@ -200,7 +212,7 @@ export function App() {
         ref={fileInputRef}
         className="sr-only"
         type="file"
-        accept=".csv,.xlsx,.zip,.tar,.tgz,.gz"
+        accept=".csv,.xlsx,.pdf,.zip,.tar,.tgz,.gz"
         onChange={(event) => {
           const file = event.target.files?.[0];
           if (file) {
@@ -245,6 +257,7 @@ export function App() {
               importing={importing}
               confirming={confirming}
               dataset={dataset}
+              documentResult={documentResult}
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
               onExport={() => dataset && window.open(workspaceClient.getParquetUrl(dataset.id), "_blank")}
@@ -269,6 +282,7 @@ export function App() {
             project={selectedProject}
             preview={preview}
             dataset={dataset}
+            documentResult={documentResult}
             fieldTypes={fieldTypes}
             onFieldTypeChange={(name, dataType) => setFieldTypes((current) => ({ ...current, [name]: dataType }))}
             onTabChange={setActiveInspector}
@@ -546,6 +560,7 @@ type WorkspaceContentProps = {
   importing: boolean;
   confirming: boolean;
   dataset: DatasetVersion | null;
+  documentResult: DocumentParseResult | null;
   projectReady: boolean;
   onImport: () => void;
   onConfirm: () => void;
@@ -560,6 +575,7 @@ function WorkspaceContent({
   importing,
   confirming,
   dataset,
+  documentResult,
   projectReady,
   onImport,
   onConfirm,
@@ -606,27 +622,34 @@ function WorkspaceContent({
       <section className="metrics-strip" aria-label="数据集摘要">
         <Metric
           label="数据行"
-          value={preview ? preview.rowCount.toLocaleString("zh-CN") : "48,216"}
-          detail={preview ? `预览前 ${preview.rows.length} 行` : "已过滤 126 行"}
+          value={documentResult ? String(documentResult.pageCount) : preview ? preview.rowCount.toLocaleString("zh-CN") : "48,216"}
+          detail={documentResult ? "PDF 页数" : preview ? `预览前 ${preview.rows.length} 行` : "已过滤 126 行"}
         />
         <Metric
           label="字段"
-          value={preview ? String(preview.columnCount) : "24"}
-          detail={preview ? `数值 ${numericColumnCount}, 其他 ${preview.columnCount - numericColumnCount}` : "数值 15, 类别 9"}
+          value={documentResult ? documentResult.pdfType : preview ? String(preview.columnCount) : "24"}
+          detail={documentResult ? `OCR 已处理 ${documentResult.ocrPages.length} 页` : preview ? `数值 ${numericColumnCount}, 其他 ${preview.columnCount - numericColumnCount}` : "数值 15, 类别 9"}
         />
         <Metric
           label="文件格式"
-          value={preview?.format.toUpperCase() ?? "XLSX"}
-          detail={preview?.sheetName ?? preview?.encoding ?? "销售数据集 v3"}
+          value={documentResult ? "PDF" : preview?.format.toUpperCase() ?? "XLSX"}
+          detail={documentResult?.engine ?? preview?.sheetName ?? preview?.encoding ?? "销售数据集 v3"}
         />
         <Metric
           label="当前状态"
-          value={preview ? "待检查" : "训练中"}
-          detail={preview ? "请确认字段类型" : "验证 R2 0.872"}
+          value={documentResult ? documentResult.status : preview ? "待检查" : "训练中"}
+          detail={documentResult ? (documentResult.status === "ocr_required" ? "等待 OCR Worker" : "文档已解析") : preview ? "请确认字段类型" : "验证 R2 0.872"}
         />
       </section>
 
-      <section className="content-section">
+      {documentResult ? (
+        <section className="content-section document-preview-section">
+          <div className="content-heading"><div><span className="section-kicker">文档预览</span><h2>{documentResult.pdfType}</h2></div></div>
+          {documentResult.markdownPreview ? <pre>{documentResult.markdownPreview}</pre> : (
+            <div className="document-ocr-state"><strong>需要 OCR</strong><span>待处理页: {documentResult.pagesNeedingOcr.join(", ")}</span></div>
+          )}
+        </section>
+      ) : <section className="content-section">
         <div className="content-heading">
           <div>
             <span className="section-kicker">数据预览</span>
@@ -693,7 +716,7 @@ function WorkspaceContent({
           <span>{preview ? `显示前 ${preview.rows.length} 行, 共 ${preview.rowCount.toLocaleString("zh-CN")} 行` : "显示前 4 行, 共 48,216 行"}</span>
           <span>来源: {preview?.sourceName ?? project.path}</span>
         </div>
-      </section>
+      </section>}
 
       <section className="content-section activity-section">
         <div className="content-heading">
@@ -818,6 +841,7 @@ type InspectorPanelProps = {
   project: Project;
   preview: TablePreview | null;
   dataset: DatasetVersion | null;
+  documentResult: DocumentParseResult | null;
   fieldTypes: Record<string, DatasetColumnSpec["dataType"]>;
   onFieldTypeChange: (name: string, dataType: DatasetColumnSpec["dataType"]) => void;
   onTabChange: (tab: string) => void;
@@ -829,6 +853,7 @@ function InspectorPanel({
   project,
   preview,
   dataset,
+  documentResult,
   fieldTypes,
   onFieldTypeChange,
   onTabChange,
@@ -884,6 +909,18 @@ function InspectorPanel({
             <PropertyRow label="行数" value={preview.rowCount.toLocaleString("zh-CN")} />
             <PropertyRow label="字段数" value={String(preview.columnCount)} />
             {dataset ? <PropertyRow label="数据集版本" value={`v${dataset.version}`} /> : null}
+          </InspectorSection>
+        ) : null}
+
+        {documentResult ? (
+          <InspectorSection title="PDF 解析">
+            <PropertyRow label="分类" value={documentResult.pdfType} />
+            <PropertyRow label="状态" value={documentResult.status} />
+            <PropertyRow label="引擎" value={documentResult.engine} />
+            <PropertyRow label="页数" value={String(documentResult.pageCount)} />
+            <PropertyRow label="OCR 页" value={documentResult.ocrPages.join(", ") || "无"} />
+            <PropertyRow label="待 OCR" value={documentResult.pagesNeedingOcr.join(", ") || "无"} />
+            <PropertyRow label="JSON" value={documentResult.jsonRelativePath} />
           </InspectorSection>
         ) : null}
 

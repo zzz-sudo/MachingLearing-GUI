@@ -2,6 +2,7 @@ import type {
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
+  DocumentParseResult,
   ImportResult,
   Project,
   ServiceHealth,
@@ -28,6 +29,10 @@ export class LocalWorkspaceClient {
 
   async getPreview(assetId: string): Promise<TablePreview> {
     return this.request<TablePreview>(`/assets/${assetId}/preview`);
+  }
+
+  async getDocument(assetId: string): Promise<DocumentParseResult> {
+    return this.request<DocumentParseResult>(`/assets/${assetId}/document`);
   }
 
   async listDatasets(projectId: string): Promise<DatasetVersion[]> {
