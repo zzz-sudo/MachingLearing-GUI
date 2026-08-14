@@ -30,6 +30,7 @@
   },
   "bundle": {
     "active": true,
+    "externalBin": ["binaries/task-service"],
     "targets": ["nsis"],
     "windows": {
       "nsis": {

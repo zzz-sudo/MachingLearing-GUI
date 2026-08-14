@@ -3,6 +3,18 @@
   "identifier": "default",
   "description": "Default desktop window capability",
   "windows": ["main"],
-  "permissions": ["core:default"]
+  "permissions": [
+    "core:default",
+    "shell:allow-kill",
+    {
+      "identifier": "shell:allow-spawn",
+      "allow": [
+        {
+          "name": "binaries/task-service",
+          "sidecar": true,
+          "args": ["--host", "127.0.0.1", "--port", "8765"]
+        }
+      ]
+    }
+  ]
 }
-

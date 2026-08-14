@@ -423,7 +423,7 @@ LocalWorkspaceClient 连接本机 Python Task Service，文件保存在本地项
 
 ## Windows 打包和发布
 
-第一版以 Windows x64 为主要目标。React 前端构建后嵌入 Tauri，Python Task Service 和必要 Worker 使用 PyInstaller 或等效工具打包为 sidecar。
+第一版以 Windows x64 为主要目标。React 前端构建后嵌入 Tauri，Python Task Service 使用 PyInstaller 单文件模式打包为 sidecar，由 Tauri 主进程负责启动、等待就绪和退出回收。普通用户不需要另外安装 Python、Node.js、Rust、RapidOCR 或 ONNX Runtime。
 
 安装包需要包含以下内容。
 
@@ -434,13 +434,15 @@ LocalWorkspaceClient 连接本机 Python Task Service，文件保存在本地项
 - 第三方许可证和 NOTICE 文件。
 - 卸载程序。
 
-模型权重、OCR 权重和大型 CUDA 依赖不应全部无条件塞入基础安装包。需要划分基础组件和可选运行组件，并在设置中显示下载大小、版本和安装位置。
+当前基础安装包内置 RapidOCR 的检测、方向分类和中文英文识别三个 ONNX 模型，保证扫描 PDF 在离线环境可用。PyInstaller 构建结束后会运行 sidecar 的 check-resources 模式，确认模型能够从打包资源加载。当前 sidecar 大约 170 MB，NSIS 安装包大约 173 MB。后续大型 Docling 模型、机器学习模型权重和 CUDA 依赖仍作为可选组件，不无条件放入基础安装包。
+
+Tauri 使用固定回环地址 127.0.0.1 和端口 8765 连接 sidecar。桌面窗口创建前最多等待 15 秒，服务未就绪时返回 SidecarReadyTimeoutError。配置错误返回 SidecarConfigurationError，进程启动失败返回 SidecarStartError。关闭桌面窗口时，Windows 使用无窗口的 taskkill 进程树回收方式，同时终止 PyInstaller 外层进程和内部服务进程，避免残留端口和后台进程。
 
 正式分发需要 Windows 代码签名、版本号、安装日志、崩溃日志导出和升级策略。便携版可以用于内部测试，面向普通用户优先提供安装程序。
 
 ## 当前原型运行方式
 
-开发工具需要 Node.js, pnpm 10, Rust stable 和 D:\Python\python11。首次运行前在仓库根目录执行 pnpm install，并在 services\task-service 目录安装 pyproject.toml 中声明的 Python 依赖。
+开发工具需要 Node.js, pnpm 10, Rust stable 和 Python 3.11。当前机器默认使用 D:\Python\python11，也可以通过 ML_GUI_PYTHON 指定其他 Python 3.11 路径。首次运行前在仓库根目录执行 pnpm install，并在 services\task-service 目录安装 pyproject.toml 中声明的 Python 依赖。
 
 启动本地任务服务。
 
@@ -463,14 +465,31 @@ Set-Location F:\CodeX
 pnpm desktop:dev
 ```
 
-生成不带安装器的 Windows exe。
+desktop:dev 会先创建 .runtime\sidecar-venv 专用打包环境，生成带目标三元组的 sidecar，再启动 Tauri。该虚拟环境、PyInstaller 中间文件和生成的 sidecar 均被 Git 忽略。网络需要自定义 Python 镜像时可以设置 ML_GUI_PIP_INDEX_URL，不在项目脚本中关闭 TLS 证书校验。
+
+生成 Windows NSIS 安装包。
 
 ```powershell
 Set-Location F:\CodeX
 pnpm desktop:build
 ```
 
-构建后的 exe 位于 apps\desktop\src-tauri\target\release。当前 exe 复用本机运行的 Python Task Service，后续发布阶段再把 Python 服务打包为 sidecar，并由桌面主进程统一启动和关闭。
+生成不带安装器的便携测试目录。
+
+```powershell
+Set-Location F:\CodeX
+pnpm desktop:build:portable
+```
+
+构建入口 scripts\build_windows_sidecar.ps1 会验证 Python 3.11、安装 packaging 可选依赖、调用 PyInstaller，并把 task-service-x86_64-pc-windows-msvc.exe 写入 Tauri binaries 目录。Tauri 根据 externalBin 配置把它复制为发布目录中的 task-service.exe，并嵌入 NSIS 安装包。
+
+构建产物如下。
+
+- 桌面主程序: apps\desktop\src-tauri\target\release\machinglearing-gui.exe。
+- 发布 sidecar: apps\desktop\src-tauri\target\release\task-service.exe。
+- NSIS 安装包: apps\desktop\src-tauri\target\release\bundle\nsis\MachingLearing GUI_0.1.0_x64-setup.exe。
+
+便携测试必须同时保留主程序和 task-service.exe，不能只复制主程序。面向用户分发时使用 NSIS 安装包。当前安装模式为 currentUser，不需要管理员权限。正式公开发布前仍需完成 Windows 代码签名、第三方许可证汇总和升级签名配置。
 
 默认情况下 WebView 数据保存在当前用户的应用数据目录。受限环境或便携测试可以在启动前设置 ML_GUI_WEBVIEW_DATA_DIR，将缓存和本地存储写入指定的可写目录。
 
