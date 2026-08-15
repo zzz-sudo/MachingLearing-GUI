@@ -15,7 +15,7 @@
     "release:check": "python scripts/release_version.py --check",
     "release:licenses": ".runtime\\sidecar-venv\\Scripts\\python.exe scripts/generate_third_party_licenses.py",
     "release:build": "powershell -NoProfile -ExecutionPolicy Bypass -File scripts/build_windows_release.ps1",
-    "typecheck": "pnpm --filter @ml-gui/contracts typecheck && pnpm --filter @ml-gui/web typecheck",
+    "typecheck": "pnpm --filter @ml-gui/contracts build && pnpm --filter @ml-gui/web typecheck",
     "test": "pnpm --filter @ml-gui/web test"
   }
 }

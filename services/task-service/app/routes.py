@@ -1,12 +1,15 @@
 from __future__ import annotations
 
+import mimetypes
 from pathlib import Path
-from urllib.parse import unquote
+from typing import Literal
+from urllib.parse import quote, unquote
 
 from fastapi import APIRouter, Header, Query, Request
 from fastapi.responses import FileResponse
 
 from app.datasets import DatasetService
+from app.documents import DocumentExportService
 from app.importer import FileImporter
 from app.models import (
     AssetRecord,
@@ -17,6 +20,7 @@ from app.models import (
     JobCreate,
     JobRecord,
     JobUpdate,
+    ProjectFileNode,
     ProjectCreate,
     ProjectRecord,
     ServiceHealth,
@@ -61,6 +65,40 @@ def list_assets(project_id: str, request: Request) -> list[AssetRecord]:
     return get_store(request).list_assets(project_id)
 
 
+@router.get("/projects/{project_id}/tree", response_model=list[ProjectFileNode])
+def get_project_tree(
+    project_id: str,
+    request: Request,
+    include_hidden: bool = Query(default=True, alias="includeHidden"),
+) -> list[ProjectFileNode]:
+    return get_store(request).get_project_tree(project_id, include_hidden)
+
+
+@router.get("/projects/{project_id}/files/content")
+def get_project_file_content(
+    project_id: str,
+    request: Request,
+    relative_path: str = Query(alias="path"),
+) -> FileResponse:
+    path = get_store(request).resolve_project_file(project_id, relative_path)
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(
+        path,
+        media_type=media_type,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(path.name)}"},
+    )
+
+
+@router.get("/assets/{asset_id}/content")
+def get_asset_content(asset_id: str, request: Request) -> FileResponse:
+    asset, path = get_store(request).resolve_asset_path(asset_id)
+    return FileResponse(
+        path,
+        media_type=asset.media_type,
+        headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(asset.name)}"},
+    )
+
+
 @router.get("/assets/{asset_id}/preview", response_model=TablePreview)
 def get_asset_preview(asset_id: str, request: Request) -> TablePreview:
     return get_store(request).get_preview(asset_id)
@@ -69,6 +107,16 @@ def get_asset_preview(asset_id: str, request: Request) -> TablePreview:
 @router.get("/assets/{asset_id}/document", response_model=DocumentParseResult)
 def get_document_result(asset_id: str, request: Request) -> DocumentParseResult:
     return get_store(request).get_document_result(asset_id)
+
+
+@router.get("/assets/{asset_id}/document/export")
+def export_document_result(
+    asset_id: str,
+    request: Request,
+    output_format: Literal["docx", "xlsx", "md", "txt"] = Query(alias="format"),
+) -> FileResponse:
+    path, media_type = DocumentExportService(get_store(request)).export(asset_id, output_format)
+    return FileResponse(path, media_type=media_type, filename=path.name)
 
 
 @router.get("/projects/{project_id}/datasets", response_model=list[DatasetVersion])

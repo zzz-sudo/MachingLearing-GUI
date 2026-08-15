@@ -64,6 +64,16 @@ def document_result_not_found(asset_id: str) -> WorkspaceServiceError:
     )
 
 
+def document_export_error(asset_id: str, output_format: str, reason: str) -> WorkspaceServiceError:
+    return WorkspaceServiceError(
+        error_type="DocumentExportError",
+        message=f"无法导出文档解析结果: {output_format}",
+        operation="document_export",
+        status_code=400,
+        details={"assetId": asset_id, "format": output_format, "reason": reason},
+    )
+
+
 def import_error(
     error_type: str,
     message: str,

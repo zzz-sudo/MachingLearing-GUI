@@ -5,6 +5,7 @@ import type {
   DocumentParseResult,
   ImportResult,
   Project,
+  ProjectFileNode,
   ServiceHealth,
   TablePreview,
   WorkspaceError,
@@ -25,6 +26,12 @@ export class LocalWorkspaceClient {
 
   async listAssets(projectId: string): Promise<Asset[]> {
     return this.request<Asset[]>(`/projects/${projectId}/assets`);
+  }
+
+  async getProjectTree(projectId: string, includeHidden: boolean): Promise<ProjectFileNode[]> {
+    return this.request<ProjectFileNode[]>(
+      `/projects/${projectId}/tree?includeHidden=${String(includeHidden)}`,
+    );
   }
 
   async getPreview(assetId: string): Promise<TablePreview> {
@@ -53,6 +60,19 @@ export class LocalWorkspaceClient {
 
   getParquetUrl(datasetId: string): string {
     return `${this.baseUrl}/datasets/${datasetId}/parquet`;
+  }
+
+  getAssetContentUrl(assetId: string): string {
+    return `${this.baseUrl}/assets/${assetId}/content`;
+  }
+
+  getProjectFileContentUrl(projectId: string, relativePath: string): string {
+    const query = new URLSearchParams({ path: relativePath });
+    return `${this.baseUrl}/projects/${projectId}/files/content?${query.toString()}`;
+  }
+
+  getDocumentExportUrl(assetId: string, outputFormat: "docx" | "xlsx" | "md" | "txt"): string {
+    return `${this.baseUrl}/assets/${assetId}/document/export?format=${outputFormat}`;
   }
 
   async importFile(projectId: string, file: File): Promise<ImportResult> {

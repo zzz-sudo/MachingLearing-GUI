@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
+import stat
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -17,6 +19,7 @@ from app.models import (
     JobStatus,
     JobUpdate,
     ProjectCreate,
+    ProjectFileNode,
     ProjectRecord,
     TablePreview,
 )
@@ -361,6 +364,64 @@ class WorkspaceStore:
             ).fetchall()
         return [self._asset_from_row(row) for row in rows]
 
+    def get_project_tree(self, project_id: str, include_hidden: bool) -> list[ProjectFileNode]:
+        project = self.get_project(project_id)
+        project_root = Path(project.path).resolve()
+        assets = {asset.relative_path: asset.id for asset in self.list_assets(project_id)}
+
+        def build_nodes(directory: Path) -> list[ProjectFileNode]:
+            try:
+                entries = sorted(
+                    os.scandir(directory),
+                    key=lambda entry: (not entry.is_dir(follow_symlinks=False), entry.name.casefold()),
+                )
+            except OSError as error:
+                raise file_access_error(directory, "project_tree", str(error)) from error
+
+            nodes: list[ProjectFileNode] = []
+            for entry in entries:
+                path = Path(entry.path)
+                hidden = self._is_hidden(path)
+                if hidden and not include_hidden:
+                    continue
+                relative_path = path.relative_to(project_root).as_posix()
+                is_directory = entry.is_dir(follow_symlinks=False)
+                nodes.append(
+                    ProjectFileNode(
+                        name=entry.name,
+                        relative_path=relative_path,
+                        kind="directory" if is_directory else "file",
+                        hidden=hidden,
+                        size=None if is_directory else entry.stat(follow_symlinks=False).st_size,
+                        asset_id=assets.get(relative_path),
+                        children=build_nodes(path) if is_directory else [],
+                    )
+                )
+            return nodes
+
+        return build_nodes(project_root)
+
+    def resolve_asset_path(self, asset_id: str) -> tuple[AssetRecord, Path]:
+        asset = self.get_asset(asset_id)
+        project = self.get_project(asset.project_id)
+        project_root = Path(project.path).resolve()
+        path = (project_root / asset.relative_path).resolve()
+        if not path.is_relative_to(project_root) or not path.is_file():
+            raise file_access_error(path, "asset_content", "资产文件不存在或已经离开项目目录")
+        return asset, path
+
+    def resolve_project_file(self, project_id: str, relative_path: str) -> Path:
+        project = self.get_project(project_id)
+        project_root = Path(project.path).resolve()
+        path = (project_root / relative_path).resolve()
+        if not path.is_relative_to(project_root) or not path.is_file():
+            raise file_access_error(
+                path,
+                "project_file_content",
+                "文件不存在、不是普通文件，或已经离开项目目录",
+            )
+        return path
+
     def get_asset(self, asset_id: str) -> AssetRecord:
         with self._connect() as connection:
             row = connection.execute(
@@ -484,6 +545,14 @@ class WorkspaceStore:
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
         return connection
+
+    @staticmethod
+    def _is_hidden(path: Path) -> bool:
+        if path.name.startswith("."):
+            return True
+        if os.name == "nt":
+            return bool(path.stat().st_file_attributes & stat.FILE_ATTRIBUTE_HIDDEN)
+        return False
 
     @staticmethod
     def _project_from_row(row: sqlite3.Row) -> ProjectRecord:

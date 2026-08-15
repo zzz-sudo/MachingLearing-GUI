@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import type {
   Asset,
   DatasetColumnSpec,
@@ -6,6 +7,7 @@ import type {
   DocumentParseResult,
   Job,
   Project,
+  ProjectFileNode,
   ServiceHealth,
   TablePreview,
   WorkspaceError,
@@ -21,6 +23,10 @@ import {
   CircleStop,
   Database,
   Download,
+  Eye,
+  EyeOff,
+  File as FileIcon,
+  FileDown,
   FileSpreadsheet,
   FileText,
   Folder,
@@ -28,14 +34,18 @@ import {
   History,
   Import,
   LayoutDashboard,
+  Layers3,
+  LineChart,
   ListTree,
   MessageSquareText,
+  Network,
   PanelRightClose,
   Play,
   Search,
   Settings,
   SlidersHorizontal,
   Sparkles,
+  Sigma,
   Wrench,
   X,
 } from "lucide-react";
@@ -63,6 +73,14 @@ const railItems = [
   { id: "tools", label: "工具", icon: Wrench },
 ] as const;
 
+const analysisMethods = [
+  { id: "classification", label: "分类", group: "监督学习", detail: "预测离散类别", icon: Layers3 },
+  { id: "regression", label: "回归", group: "监督学习", detail: "预测连续数值", icon: LineChart },
+  { id: "anova", label: "方差分析", group: "统计分析", detail: "比较组间差异", icon: Sigma },
+  { id: "clustering", label: "聚类", group: "无监督学习", detail: "发现样本分组", icon: Network },
+  { id: "deep-learning", label: "深度学习", group: "神经网络", detail: "配置多层网络", icon: Sparkles },
+] as const;
+
 const statusLabels: Record<Job["status"], string> = {
   queued: "排队中",
   running: "运行中",
@@ -83,6 +101,10 @@ export function App() {
   const [selectedProject, setSelectedProject] = useState(initialProject);
   const [projectReady, setProjectReady] = useState(false);
   const [assets, setAssets] = useState<Asset[]>([]);
+  const [fileTree, setFileTree] = useState<ProjectFileNode[]>([]);
+  const [showHidden, setShowHidden] = useState(true);
+  const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [preview, setPreview] = useState<TablePreview | null>(null);
   const [dataset, setDataset] = useState<DatasetVersion | null>(null);
   const [documentResult, setDocumentResult] = useState<DocumentParseResult | null>(null);
@@ -91,6 +113,9 @@ export function App() {
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<WorkspaceError | null>(null);
   const [updateCenterOpen, setUpdateCenterOpen] = useState(false);
+  const [inspectorVisible, setInspectorVisible] = useState(true);
+  const [selectedAnalysis, setSelectedAnalysis] = useState("regression");
+  const [modelPlanStatus, setModelPlanStatus] = useState("尚未创建分析计划");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -113,12 +138,15 @@ export function App() {
         setSelectedProject(project);
         const projectAssets = await workspaceClient.listAssets(project.id);
         setAssets(projectAssets);
+        setFileTree(await workspaceClient.getProjectTree(project.id, true));
         const datasets = await workspaceClient.listDatasets(project.id);
         setDataset(datasets[0] ?? null);
         for (const asset of projectAssets) {
           if (asset.name.toLowerCase().endsWith(".pdf")) {
             try {
               setDocumentResult(await workspaceClient.getDocument(asset.id));
+              setSelectedAsset(asset);
+              setSelectedFilePath(asset.relativePath);
               setPreview(null);
               break;
             } catch {
@@ -128,6 +156,8 @@ export function App() {
           try {
             const restoredPreview = await workspaceClient.getPreview(asset.id);
             setPreview(restoredPreview);
+            setSelectedAsset(asset);
+            setSelectedFilePath(asset.relativePath);
             setFieldTypes(createInitialFieldTypes(restoredPreview));
             break;
           } catch {
@@ -141,9 +171,25 @@ export function App() {
       });
   }, []);
 
+  useEffect(() => {
+    if (!projectReady) {
+      return;
+    }
+    void workspaceClient
+      .getProjectTree(selectedProject.id, showHidden)
+      .then(setFileTree)
+      .catch((error: unknown) => {
+        setServiceError(error instanceof Error ? error.message : "无法读取项目文件树");
+      });
+  }, [projectReady, selectedProject.id, showHidden]);
+
   const selectedJob = useMemo(
     () => demoJobs.find((job) => job.id === selectedJobId) ?? initialJob,
     [selectedJobId],
+  );
+  const selectedProjectFile = useMemo(
+    () => selectedFilePath ? findProjectFile(fileTree, selectedFilePath) : null,
+    [fileTree, selectedFilePath],
   );
 
   async function importSelectedFile(file: File) {
@@ -158,8 +204,14 @@ export function App() {
       setDocumentResult(result.document ?? null);
       setDataset(null);
       setFieldTypes(result.preview ? createInitialFieldTypes(result.preview) : {});
-      setAssets(await workspaceClient.listAssets(selectedProject.id));
-      setActiveRail("datasets");
+      const projectAssets = await workspaceClient.listAssets(selectedProject.id);
+      setAssets(projectAssets);
+      setFileTree(await workspaceClient.getProjectTree(selectedProject.id, showHidden));
+      const importedAssetId = result.document?.assetId ?? result.preview?.assetId;
+      const importedAsset = projectAssets.find((asset) => asset.id === importedAssetId) ?? null;
+      setSelectedAsset(importedAsset);
+      setSelectedFilePath(importedAsset?.relativePath ?? null);
+      setActiveRail(result.document ? "documents" : "datasets");
       setActiveInspector("properties");
     } catch (error: unknown) {
       if (error instanceof WorkspaceClientError) {
@@ -176,6 +228,48 @@ export function App() {
     } finally {
       setImporting(false);
     }
+  }
+
+  async function openAsset(assetId: string) {
+    const asset = assets.find((item) => item.id === assetId);
+    if (!asset) {
+      return;
+    }
+    setSelectedAsset(asset);
+    setSelectedFilePath(asset.relativePath);
+    setImportError(null);
+    if (asset.name.toLowerCase().endsWith(".pdf")) {
+      try {
+        setDocumentResult(await workspaceClient.getDocument(assetId));
+        setPreview(null);
+        setActiveRail("documents");
+      } catch (error: unknown) {
+        setImportError(asWorkspaceError(error, "document_open", "无法打开文档解析结果"));
+      }
+      return;
+    }
+    try {
+      const restoredPreview = await workspaceClient.getPreview(assetId);
+      setPreview(restoredPreview);
+      setDocumentResult(null);
+      setFieldTypes(createInitialFieldTypes(restoredPreview));
+      setActiveRail("datasets");
+    } catch (error: unknown) {
+      setImportError(asWorkspaceError(error, "asset_open", "当前文件没有可用预览"));
+    }
+  }
+
+  function openProjectFile(file: ProjectFileNode) {
+    setSelectedFilePath(file.relativePath);
+    if (file.assetId) {
+      void openAsset(file.assetId);
+      return;
+    }
+    setSelectedAsset(null);
+    setPreview(null);
+    setDocumentResult(null);
+    setImportError(null);
+    setActiveRail("documents");
   }
 
   async function confirmFields() {
@@ -233,14 +327,25 @@ export function App() {
       <PanelGroup direction="horizontal" className="workspace-panels">
         <Panel defaultSize={19} minSize={15} maxSize={28}>
           <ContextSidebar
+            activeRail={activeRail}
             jobs={demoJobs}
             project={selectedProject}
             assets={assets}
+            fileTree={fileTree}
+            showHidden={showHidden}
             importing={importing}
             projectReady={projectReady}
             selectedJobId={selectedJobId}
+            selectedFilePath={selectedFilePath}
+            selectedAnalysis={selectedAnalysis}
             onImport={() => projectReady && fileInputRef.current?.click()}
+            onSelectAnalysis={(analysis) => {
+              setSelectedAnalysis(analysis);
+              setActiveRail("models");
+            }}
+            onSelectFile={openProjectFile}
             onSelectJob={setSelectedJobId}
+            onShowHiddenChange={setShowHidden}
           />
         </Panel>
 
@@ -254,9 +359,14 @@ export function App() {
               preview={preview}
               project={selectedProject}
               serviceError={serviceError}
+              selectedAsset={selectedAsset}
+              selectedFile={selectedProjectFile}
+              inspectorVisible={inspectorVisible}
+              onToggleInspector={() => setInspectorVisible((current) => !current)}
             />
-            <WorkflowBar job={selectedJob} preview={preview} />
+            <WorkflowBar activeRail={activeRail} job={selectedJob} preview={preview} />
             <WorkspaceContent
+              activeRail={activeRail}
               job={selectedJob}
               project={selectedProject}
               preview={preview}
@@ -265,10 +375,16 @@ export function App() {
               confirming={confirming}
               dataset={dataset}
               documentResult={documentResult}
+              selectedAsset={selectedAsset}
+              selectedFile={selectedProjectFile}
+              selectedAnalysis={selectedAnalysis}
+              modelPlanStatus={modelPlanStatus}
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
               onExport={() => dataset && window.open(workspaceClient.getParquetUrl(dataset.id), "_blank")}
               onImport={() => projectReady && fileInputRef.current?.click()}
+              onSelectAnalysis={setSelectedAnalysis}
+              onCreateModelPlan={() => setModelPlanStatus("分析计划已创建，等待接入训练 Worker")}
             />
             <CommandDock
               activeMode={activeMode}
@@ -280,21 +396,25 @@ export function App() {
           </main>
         </Panel>
 
-        <ResizeHandle />
+        {inspectorVisible ? <ResizeHandle /> : null}
 
-        <Panel defaultSize={25} minSize={20} maxSize={34} collapsible>
+        {inspectorVisible ? <Panel defaultSize={25} minSize={20} maxSize={34} collapsible>
           <InspectorPanel
+            activeRail={activeRail}
             activeTab={activeInspector}
             job={selectedJob}
             project={selectedProject}
             preview={preview}
             dataset={dataset}
             documentResult={documentResult}
+            selectedAsset={selectedAsset}
+            selectedFile={selectedProjectFile}
+            selectedAnalysis={selectedAnalysis}
             fieldTypes={fieldTypes}
             onFieldTypeChange={(name, dataType) => setFieldTypes((current) => ({ ...current, [name]: dataType }))}
             onTabChange={setActiveInspector}
           />
-        </Panel>
+        </Panel> : null}
       </PanelGroup>
       {updateCenterOpen ? <UpdateCenter onClose={() => setUpdateCenterOpen(false)} /> : null}
     </div>
@@ -463,26 +583,61 @@ function UpdateCenter({ onClose }: { onClose: () => void }) {
 }
 
 type ContextSidebarProps = {
+  activeRail: string;
   jobs: Job[];
   project: Project;
   assets: Asset[];
+  fileTree: ProjectFileNode[];
+  showHidden: boolean;
   importing: boolean;
   projectReady: boolean;
   selectedJobId: string;
+  selectedFilePath: string | null;
+  selectedAnalysis: string;
   onImport: () => void;
+  onSelectAnalysis: (analysis: string) => void;
+  onSelectFile: (file: ProjectFileNode) => void;
   onSelectJob: (jobId: string) => void;
+  onShowHiddenChange: (value: boolean) => void;
 };
 
 function ContextSidebar({
+  activeRail,
   jobs,
   project,
   assets,
+  fileTree,
+  showHidden,
   importing,
   projectReady,
   selectedJobId,
+  selectedFilePath,
+  selectedAnalysis,
   onImport,
+  onSelectAnalysis,
+  onSelectFile,
   onSelectJob,
+  onShowHiddenChange,
 }: ContextSidebarProps) {
+  const [searchText, setSearchText] = useState("");
+  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(
+    () => new Set(["", "source", "documents", "datasets"]),
+  );
+  const normalizedSearch = searchText.trim().toLocaleLowerCase("zh-CN");
+  const visibleTree = normalizedSearch ? filterProjectTree(fileTree, normalizedSearch) : fileTree;
+
+  function toggleDirectory(relativePath: string) {
+    setExpandedPaths((current) => {
+      const next = new Set(current);
+      if (next.has(relativePath)) {
+        next.delete(relativePath);
+      } else {
+        next.add(relativePath);
+      }
+      return next;
+    });
+  }
+
   return (
     <aside className="context-sidebar">
       <div className="sidebar-header">
@@ -507,33 +662,91 @@ function ContextSidebar({
 
       <label className="search-box">
         <Search aria-hidden="true" size={15} />
-        <input aria-label="搜索项目内容" placeholder="搜索项目内容" />
+        <input
+          aria-label="搜索项目内容"
+          placeholder="搜索项目内容"
+          value={searchText}
+          onChange={(event) => setSearchText(event.target.value)}
+        />
       </label>
 
-      <section className="sidebar-section">
-        <SectionTitle icon={ListTree} title="项目内容" />
+      {activeRail === "models" ? (
+        <section className="sidebar-section sidebar-fill-section">
+          <SectionTitle icon={Box} title="分析方法" />
+          <div className="analysis-nav-list">
+            {analysisMethods.map((method) => {
+              const Icon = method.icon;
+              return (
+                <button
+                  key={method.id}
+                  className="analysis-nav-row"
+                  data-active={selectedAnalysis === method.id}
+                  type="button"
+                  onClick={() => onSelectAnalysis(method.id)}
+                >
+                  <Icon aria-hidden="true" size={16} />
+                  <span><strong>{method.label}</strong><small>{method.group}</small></span>
+                </button>
+              );
+            })}
+          </div>
+        </section>
+      ) : activeRail === "tools" ? (
+        <section className="sidebar-section sidebar-fill-section">
+          <SectionTitle icon={Wrench} title="可用工具" />
+          <div className="analysis-nav-list">
+            <SidebarAction icon={Import} label="导入和解压" detail="文件与压缩包" onClick={onImport} />
+            <SidebarAction icon={FileText} label="文档解析" detail="PDF 和 OCR" onClick={() => undefined} />
+            <SidebarAction icon={Database} label="数据集导出" detail="Parquet" onClick={() => undefined} />
+          </div>
+        </section>
+      ) : (
+      <section className="sidebar-section sidebar-fill-section">
+        <SectionTitle
+          icon={ListTree}
+          title="项目内容"
+          action={(
+            <button
+              className="section-icon-action"
+              data-active={showHidden}
+              title={showHidden ? "隐藏隐藏项目" : "显示隐藏项目"}
+              type="button"
+              onClick={() => onShowHiddenChange(!showHidden)}
+            >
+              {showHidden ? <Eye aria-hidden="true" size={14} /> : <EyeOff aria-hidden="true" size={14} />}
+              <span className="sr-only">{showHidden ? "隐藏隐藏项目" : "显示隐藏项目"}</span>
+            </button>
+          )}
+        />
         <div className="asset-tree">
-          <TreeRow icon={FolderOpen} label={project.name} level={0} open />
-          <TreeRow icon={Folder} label="原始文件" level={1} open />
-          {assets.length > 0 ? (
-            assets.slice(0, 8).map((asset) => (
-              <TreeRow
-                key={asset.id}
-                icon={asset.mediaType.includes("zip") ? Archive : FileSpreadsheet}
-                label={asset.name}
-                level={2}
+          <TreeRow
+            icon={expandedPaths.has("") ? FolderOpen : Folder}
+            label={project.name}
+            level={0}
+            open={expandedPaths.has("")}
+            onClick={() => toggleDirectory("")}
+          />
+          {expandedPaths.has("") && visibleTree.length > 0 ? (
+            visibleTree.map((node) => (
+              <ProjectTreeNode
+                key={node.relativePath}
+                node={node}
+                level={1}
+                expandedPaths={expandedPaths}
+                forceOpen={Boolean(normalizedSearch)}
+                selectedFilePath={selectedFilePath}
+                onSelectFile={onSelectFile}
+                onToggle={toggleDirectory}
               />
             ))
           ) : (
-            <TreeRow icon={FileSpreadsheet} label="尚未导入数据文件" level={2} />
+            <div className="tree-empty">项目目录为空</div>
           )}
-          <TreeRow icon={Database} label="销售数据集 v3" level={1} />
-          <TreeRow icon={FileText} label="字段说明.pdf" level={1} />
-          <TreeRow icon={Box} label="销量回归模型 v2" level={1} />
         </div>
       </section>
+      )}
 
-      <section className="sidebar-section history-section">
+      {activeRail === "workspace" || activeRail === "jobs" ? <section className="sidebar-section history-section">
         <SectionTitle icon={History} title="任务历史" actionLabel="查看全部" />
         <div className="job-list">
           {jobs.map((job) => (
@@ -553,7 +766,7 @@ function ContextSidebar({
             </button>
           ))}
         </div>
-      </section>
+      </section> : null}
 
       <div className="sidebar-footer">
         <span>本地项目</span>
@@ -567,18 +780,19 @@ type SectionTitleProps = {
   icon: typeof History;
   title: string;
   actionLabel?: string;
+  action?: ReactNode;
 };
 
-function SectionTitle({ icon: Icon, title, actionLabel }: SectionTitleProps) {
+function SectionTitle({ icon: Icon, title, actionLabel, action }: SectionTitleProps) {
   return (
     <div className="section-title">
       <span>
         <Icon aria-hidden="true" size={14} />
         {title}
       </span>
-      {actionLabel ? (
+      {action ?? (actionLabel ? (
         <button type="button">{actionLabel}</button>
-      ) : null}
+      ) : null)}
     </div>
   );
 }
@@ -588,15 +802,21 @@ type TreeRowProps = {
   label: string;
   level: number;
   open?: boolean;
+  active?: boolean;
+  hidden?: boolean;
+  onClick?: () => void;
 };
 
-function TreeRow({ icon: Icon, label, level, open = false }: TreeRowProps) {
+function TreeRow({ icon: Icon, label, level, open = false, active = false, hidden = false, onClick }: TreeRowProps) {
   return (
     <button
       className="tree-row"
+      data-active={active}
+      data-hidden={hidden}
       style={{ paddingLeft: `${10 + level * 16}px` }}
       title={label}
       type="button"
+      onClick={onClick}
     >
       {Icon === Folder || Icon === FolderOpen ? (
         open ? (
@@ -613,12 +833,81 @@ function TreeRow({ icon: Icon, label, level, open = false }: TreeRowProps) {
   );
 }
 
+function ProjectTreeNode({
+  node,
+  level,
+  expandedPaths,
+  forceOpen,
+  selectedFilePath,
+  onSelectFile,
+  onToggle,
+}: {
+  node: ProjectFileNode;
+  level: number;
+  expandedPaths: Set<string>;
+  forceOpen: boolean;
+  selectedFilePath: string | null;
+  onSelectFile: (file: ProjectFileNode) => void;
+  onToggle: (path: string) => void;
+}) {
+  const directoryOpen = forceOpen || expandedPaths.has(node.relativePath);
+  const icon = node.kind === "directory"
+    ? directoryOpen ? FolderOpen : Folder
+    : fileIconForName(node.name);
+  return (
+    <>
+      <TreeRow
+        icon={icon}
+        label={node.name}
+        level={level}
+        open={directoryOpen}
+        active={node.relativePath === selectedFilePath}
+        hidden={node.hidden}
+        onClick={() => {
+          if (node.kind === "directory") {
+            onToggle(node.relativePath);
+          } else {
+            onSelectFile(node);
+          }
+        }}
+      />
+      {node.kind === "directory" && directoryOpen
+        ? node.children.map((child) => (
+            <ProjectTreeNode
+              key={child.relativePath}
+              node={child}
+              level={level + 1}
+              expandedPaths={expandedPaths}
+              forceOpen={forceOpen}
+              selectedFilePath={selectedFilePath}
+              onSelectFile={onSelectFile}
+              onToggle={onToggle}
+            />
+          ))
+        : null}
+    </>
+  );
+}
+
+function SidebarAction({ icon: Icon, label, detail, onClick }: { icon: typeof Import; label: string; detail: string; onClick: () => void }) {
+  return (
+    <button className="analysis-nav-row" type="button" onClick={onClick}>
+      <Icon aria-hidden="true" size={16} />
+      <span><strong>{label}</strong><small>{detail}</small></span>
+    </button>
+  );
+}
+
 type WorkspaceHeaderProps = {
   activeRail: string;
   health: ServiceHealth | null;
   preview: TablePreview | null;
   project: Project;
   serviceError: string | null;
+  selectedAsset: Asset | null;
+  selectedFile: ProjectFileNode | null;
+  inspectorVisible: boolean;
+  onToggleInspector: () => void;
 };
 
 function WorkspaceHeader({
@@ -627,6 +916,10 @@ function WorkspaceHeader({
   preview,
   project,
   serviceError,
+  selectedAsset,
+  selectedFile,
+  inspectorVisible,
+  onToggleInspector,
 }: WorkspaceHeaderProps) {
   const activeLabel =
     railItems.find((item) => item.id === activeRail)?.label ?? "工作台";
@@ -635,7 +928,7 @@ function WorkspaceHeader({
     <header className="workspace-header">
       <div className="workspace-title">
         <span className="breadcrumb">{project.name} / {activeLabel}</span>
-        <h1>{preview?.sourceName ?? "华东区域销售数据分析"}</h1>
+        <h1>{selectedFile?.name ?? selectedAsset?.name ?? preview?.sourceName ?? activeLabel}</h1>
       </div>
 
       <div className="header-actions">
@@ -647,29 +940,41 @@ function WorkspaceHeader({
           <span />
           {health ? "本地服务已连接" : "本地服务未连接"}
         </div>
-        <button className="icon-button" title="收起检查栏" type="button">
+        <button
+          className="icon-button"
+          title={inspectorVisible ? "收起检查栏" : "展开检查栏"}
+          type="button"
+          onClick={onToggleInspector}
+        >
           <PanelRightClose aria-hidden="true" size={17} />
-          <span className="sr-only">收起检查栏</span>
+          <span className="sr-only">{inspectorVisible ? "收起检查栏" : "展开检查栏"}</span>
         </button>
       </div>
     </header>
   );
 }
 
-function WorkflowBar({ job, preview }: { job: Job; preview: TablePreview | null }) {
-  const steps = ["导入", "字段检查", "训练配置", "模型训练", "结果评估"];
+function WorkflowBar({ activeRail, job, preview }: { activeRail: string; job: Job; preview: TablePreview | null }) {
+  const steps = activeRail === "documents"
+    ? ["读取文件", "页面解析", "内容检查", "格式导出"]
+    : ["导入", "字段检查", "训练配置", "模型训练", "结果评估"];
+  const documentIndex = activeRail === "documents" ? 2 : null;
   const activeIndex = preview ? 1 : job.status === "succeeded" ? 4 : 3;
 
   return (
-    <div className="workflow-bar" aria-label="当前工作流">
+    <div
+      className="workflow-bar"
+      aria-label="当前工作流"
+      style={{ gridTemplateColumns: `repeat(${steps.length}, minmax(96px, 1fr))` }}
+    >
       {steps.map((step, index) => (
         <div
           key={step}
           className="workflow-step"
           data-state={
-            index < activeIndex
+            index < (documentIndex ?? activeIndex)
               ? "complete"
-              : index === activeIndex
+              : index === (documentIndex ?? activeIndex)
                 ? "active"
                 : "pending"
           }
@@ -683,6 +988,7 @@ function WorkflowBar({ job, preview }: { job: Job; preview: TablePreview | null 
 }
 
 type WorkspaceContentProps = {
+  activeRail: string;
   job: Job;
   project: Project;
   preview: TablePreview | null;
@@ -691,13 +997,20 @@ type WorkspaceContentProps = {
   confirming: boolean;
   dataset: DatasetVersion | null;
   documentResult: DocumentParseResult | null;
+  selectedAsset: Asset | null;
+  selectedFile: ProjectFileNode | null;
+  selectedAnalysis: string;
+  modelPlanStatus: string;
   projectReady: boolean;
   onImport: () => void;
   onConfirm: () => void;
   onExport: () => void;
+  onSelectAnalysis: (analysis: string) => void;
+  onCreateModelPlan: () => void;
 };
 
 function WorkspaceContent({
+  activeRail,
   job,
   project,
   preview,
@@ -706,15 +1019,53 @@ function WorkspaceContent({
   confirming,
   dataset,
   documentResult,
+  selectedAsset,
+  selectedFile,
+  selectedAnalysis,
+  modelPlanStatus,
   projectReady,
   onImport,
   onConfirm,
   onExport,
+  onSelectAnalysis,
+  onCreateModelPlan,
 }: WorkspaceContentProps) {
   const numericColumnCount =
     preview?.columns.filter((column) =>
       ["integer", "number"].includes(column.inferredType),
     ).length ?? 0;
+
+  if (activeRail === "documents") {
+    return (
+      <DocumentWorkspace
+        asset={selectedAsset}
+        document={documentResult}
+        file={selectedFile}
+        projectId={project.id}
+        onImport={onImport}
+      />
+    );
+  }
+
+  if (activeRail === "models") {
+    return (
+      <ModelWorkspace
+        datasetsAvailable={dataset ? 1 : 0}
+        selectedAnalysis={selectedAnalysis}
+        planStatus={modelPlanStatus}
+        onSelectAnalysis={onSelectAnalysis}
+        onCreatePlan={onCreateModelPlan}
+      />
+    );
+  }
+
+  if (activeRail === "jobs") {
+    return <JobsWorkspace jobs={demoJobs} selectedJob={job} />;
+  }
+
+  if (activeRail === "tools") {
+    return <ToolsWorkspace onImport={onImport} />;
+  }
 
   return (
     <div className="workspace-scroll">
@@ -878,6 +1229,355 @@ function WorkspaceContent({
   );
 }
 
+function DocumentWorkspace({
+  asset,
+  document,
+  file,
+  projectId,
+  onImport,
+}: {
+  asset: Asset | null;
+  document: DocumentParseResult | null;
+  file: ProjectFileNode | null;
+  projectId: string;
+  onImport: () => void;
+}) {
+  const [viewMode, setViewMode] = useState<"original" | "parsed">("original");
+  const [exportFormat, setExportFormat] = useState<"docx" | "xlsx" | "md" | "txt">("docx");
+
+  if (!file && (!asset || !document)) {
+    return (
+      <div className="workspace-scroll empty-workspace">
+        <FileText aria-hidden="true" size={32} />
+        <h2>选择一个项目文件</h2>
+        <p>从左侧项目树选择文件，或者先导入一个 PDF 文档。</p>
+        <button className="primary-button" type="button" onClick={onImport}>
+          <Import aria-hidden="true" size={15} />
+          导入文档
+        </button>
+      </div>
+    );
+  }
+
+  const fileName = file?.name ?? asset?.name ?? "项目文件";
+  const contentUrl = asset
+    ? workspaceClient.getAssetContentUrl(asset.id)
+    : workspaceClient.getProjectFileContentUrl(projectId, file!.relativePath);
+  const exportUrl = asset && document
+    ? workspaceClient.getDocumentExportUrl(asset.id, exportFormat)
+    : null;
+  return (
+    <div className="document-workspace">
+      <div className="document-toolbar">
+        <div className="view-segmented" role="tablist" aria-label="文档视图">
+          <button data-active={viewMode === "original"} type="button" onClick={() => setViewMode("original")}>原文件</button>
+          <button disabled={!document} data-active={viewMode === "parsed"} type="button" onClick={() => setViewMode("parsed")}>解析内容</button>
+        </div>
+        {exportUrl ? <div className="document-export-controls">
+          <label>
+            <span className="sr-only">导出格式</span>
+            <select value={exportFormat} onChange={(event) => setExportFormat(event.target.value as typeof exportFormat)}>
+              <option value="docx">Word DOCX</option>
+              <option value="xlsx">Excel XLSX</option>
+              <option value="md">Markdown</option>
+              <option value="txt">纯文本 TXT</option>
+            </select>
+          </label>
+          <a className="secondary-button button-link" href={exportUrl} download>
+            <FileDown aria-hidden="true" size={15} />
+            导出解析结果
+          </a>
+        </div> : <span className="document-file-note">项目文件只读预览</span>}
+      </div>
+
+      {viewMode === "original" ? (
+        fileName.toLowerCase().endsWith(".pdf") ? (
+          <PdfDocumentViewer fileName={fileName} url={contentUrl} />
+        ) : (
+          <iframe className="office-document-frame" src={contentUrl} title={`${fileName} 原文件预览`} />
+        )
+      ) : document ? (
+        <div className="parsed-document-pages">
+          <header className="parsed-document-header">
+            <div><span className="section-kicker">完整解析内容</span><h2>{fileName}</h2></div>
+            <span>{document.pageCount} 页</span>
+          </header>
+          {document.pages.map((page) => (
+            <article className="parsed-document-page" key={page.pageNumber}>
+              <header>第 {page.pageNumber} 页</header>
+              <div>{page.text || "本页没有识别到文本"}</div>
+            </article>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+type PdfDocumentProxy = import("pdfjs-dist").PDFDocumentProxy;
+
+function PdfDocumentViewer({ fileName, url }: { fileName: string; url: string }) {
+  const [pdf, setPdf] = useState<PdfDocumentProxy | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let disposed = false;
+    let loadingTask: ReturnType<typeof import("pdfjs-dist")["getDocument"]> | null = null;
+
+    void Promise.all([
+      import("pdfjs-dist"),
+      import("pdfjs-dist/build/pdf.worker.min.mjs?url"),
+    ]).then(([pdfjs, workerModule]) => {
+      if (disposed) {
+        return;
+      }
+      pdfjs.GlobalWorkerOptions.workerSrc = workerModule.default;
+      const pdfAssetRoot = new URL("./pdfjs/", document.baseURI);
+      loadingTask = pdfjs.getDocument({
+        url,
+        cMapUrl: new URL("cmaps/", pdfAssetRoot).toString(),
+        cMapPacked: true,
+        iccUrl: new URL("iccs/", pdfAssetRoot).toString(),
+        standardFontDataUrl: new URL("standard_fonts/", pdfAssetRoot).toString(),
+        wasmUrl: new URL("wasm/", pdfAssetRoot).toString(),
+      });
+      return loadingTask.promise;
+    }).then((loadedPdf) => {
+      if (loadedPdf && !disposed) {
+        setPdf(loadedPdf);
+        setLoadError(null);
+      }
+    }).catch((error: unknown) => {
+      if (!disposed) {
+        setLoadError(error instanceof Error ? error.message : "PDF 原文件加载失败");
+      }
+    });
+
+    return () => {
+      disposed = true;
+      void loadingTask?.destroy();
+    };
+  }, [url]);
+
+  if (loadError) {
+    return <div className="pdf-viewer-state"><FileText aria-hidden="true" size={28} /><strong>无法显示 PDF 原文件</strong><span>{loadError}</span></div>;
+  }
+  if (!pdf) {
+    return <div className="pdf-viewer-state"><FileText aria-hidden="true" size={28} /><strong>正在读取 PDF</strong><span>{fileName}</span></div>;
+  }
+
+  return (
+    <div className="pdf-original-pages" aria-label={`${fileName} 原文件完整预览`}>
+      <header><strong>{fileName}</strong><span>{pdf.numPages} 页</span></header>
+      {Array.from({ length: pdf.numPages }, (_, index) => (
+        <PdfCanvasPage key={index + 1} pageNumber={index + 1} pdf={pdf} />
+      ))}
+    </div>
+  );
+}
+
+function PdfCanvasPage({ pageNumber, pdf }: { pageNumber: number; pdf: PdfDocumentProxy }) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const [renderError, setRenderError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    const canvas = canvasRef.current;
+    if (!container || !canvas) {
+      return;
+    }
+    const pageContainer = container;
+    const pageCanvas = canvas;
+    let disposed = false;
+    let renderTask: { cancel: () => void; promise: Promise<unknown> } | null = null;
+
+    async function renderPage() {
+      renderTask?.cancel();
+      const page = await pdf.getPage(pageNumber);
+      if (disposed) {
+        return;
+      }
+      const baseViewport = page.getViewport({ scale: 1 });
+      const availableWidth = Math.max(pageContainer.clientWidth - 32, 240);
+      const scale = Math.min(availableWidth / baseViewport.width, 1.8);
+      const viewport = page.getViewport({ scale });
+      const pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+      if (!pageCanvas.getContext("2d")) {
+        throw new Error("浏览器无法创建 PDF 画布上下文");
+      }
+      pageCanvas.width = Math.floor(viewport.width * pixelRatio);
+      pageCanvas.height = Math.floor(viewport.height * pixelRatio);
+      pageCanvas.style.width = `${Math.floor(viewport.width)}px`;
+      pageCanvas.style.height = `${Math.floor(viewport.height)}px`;
+      renderTask = page.render({
+        canvas: pageCanvas,
+        viewport,
+        transform: pixelRatio === 1 ? undefined : [pixelRatio, 0, 0, pixelRatio, 0, 0],
+      });
+      await renderTask.promise;
+      if (!disposed) {
+        setRenderError(null);
+      }
+    }
+
+    let resizeTimer: number | null = null;
+    let observedWidth = 0;
+    const observer = new ResizeObserver((entries) => {
+      const nextWidth = entries[0]?.contentRect.width ?? pageContainer.clientWidth;
+      if (Math.abs(nextWidth - observedWidth) < 1) {
+        return;
+      }
+      observedWidth = nextWidth;
+      if (resizeTimer !== null) {
+        window.clearTimeout(resizeTimer);
+      }
+      resizeTimer = window.setTimeout(() => void renderPage().catch((error: unknown) => {
+        if (!disposed && !(error instanceof Error && error.name === "RenderingCancelledException")) {
+          setRenderError(error instanceof Error ? error.message : "PDF 页面渲染失败");
+        }
+      }), 80);
+    });
+    observer.observe(pageContainer);
+
+    return () => {
+      disposed = true;
+      observer.disconnect();
+      if (resizeTimer !== null) {
+        window.clearTimeout(resizeTimer);
+      }
+      renderTask?.cancel();
+    };
+  }, [pageNumber, pdf]);
+
+  return (
+    <article className="pdf-original-page" ref={containerRef}>
+      <header>第 {pageNumber} 页</header>
+      {renderError ? <div className="pdf-page-error">{renderError}</div> : null}
+      <canvas ref={canvasRef} />
+    </article>
+  );
+}
+
+function ModelWorkspace({
+  datasetsAvailable,
+  selectedAnalysis,
+  planStatus,
+  onSelectAnalysis,
+  onCreatePlan,
+}: {
+  datasetsAvailable: number;
+  selectedAnalysis: string;
+  planStatus: string;
+  onSelectAnalysis: (analysis: string) => void;
+  onCreatePlan: () => void;
+}) {
+  const [targetColumn, setTargetColumn] = useState("销售额");
+  const [validationRatio, setValidationRatio] = useState(20);
+  const [randomSeed, setRandomSeed] = useState(42);
+  const [computeMode, setComputeMode] = useState("auto");
+  const [activeView, setActiveView] = useState("design");
+  const method = analysisMethods.find((item) => item.id === selectedAnalysis) ?? analysisMethods[0]!;
+
+  return (
+    <div className="workspace-scroll model-workspace">
+      <div className="model-view-tabs" role="tablist" aria-label="模型工作区视图">
+        {[
+          { id: "design", label: "任务设计" },
+          { id: "monitor", label: "训练监控" },
+          { id: "evaluation", label: "评估结果" },
+        ].map((view) => (
+          <button key={view.id} data-active={activeView === view.id} type="button" onClick={() => setActiveView(view.id)}>{view.label}</button>
+        ))}
+      </div>
+
+      {activeView === "design" ? (
+        <>
+          <section className="model-intro-band">
+            <div><span className="section-kicker">分析任务</span><h2>{method.label}</h2><p>{method.detail}。先选择方法，再确认数据、字段和验证方式。</p></div>
+            <div><span>可用数据集</span><strong>{datasetsAvailable}</strong></div>
+          </section>
+
+          <section className="analysis-method-section">
+            <div className="section-heading"><div><span className="section-kicker">方法选择</span><h2>选择分析目标</h2></div></div>
+            <div className="analysis-method-grid">
+              {analysisMethods.map((item) => {
+                const Icon = item.icon;
+                return (
+                  <button key={item.id} data-active={selectedAnalysis === item.id} type="button" onClick={() => onSelectAnalysis(item.id)}>
+                    <Icon aria-hidden="true" size={19} />
+                    <span><strong>{item.label}</strong><small>{item.group}</small><p>{item.detail}</p></span>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+
+          <section className="model-config-section">
+            <div className="section-heading"><div><span className="section-kicker">任务参数</span><h2>数据和运行配置</h2></div></div>
+            <div className="model-config-grid">
+              <div className="config-column">
+                <label><span>数据集</span><select><option>当前数据集最新版本</option></select></label>
+                <label><span>目标字段</span><select value={targetColumn} onChange={(event) => setTargetColumn(event.target.value)}><option>销售额</option><option>销量</option><option>是否促销</option></select></label>
+                <label><span>验证集比例</span><div className="range-control"><input type="range" min="10" max="40" step="5" value={validationRatio} onChange={(event) => setValidationRatio(Number(event.target.value))} /><output>{validationRatio}%</output></div></label>
+                <label><span>随机种子</span><input type="number" value={randomSeed} onChange={(event) => setRandomSeed(Number(event.target.value))} /></label>
+              </div>
+              <div className="config-column">
+                <span className="config-label">计算模式</span>
+                <div className="compute-segmented">
+                  {[{ id: "auto", label: "自动" }, { id: "cpu", label: "CPU" }, { id: "gpu", label: "GPU" }].map((mode) => (
+                    <button key={mode.id} data-active={computeMode === mode.id} type="button" onClick={() => setComputeMode(mode.id)}>{mode.label}</button>
+                  ))}
+                </div>
+                <div className="plan-summary">
+                  <PropertyRow label="分析方法" value={method.label} />
+                  <PropertyRow label="目标字段" value={targetColumn} />
+                  <PropertyRow label="验证比例" value={`${validationRatio}%`} />
+                  <PropertyRow label="计算位置" value={computeMode.toUpperCase()} />
+                  <PropertyRow label="随机种子" value={String(randomSeed)} />
+                </div>
+              </div>
+            </div>
+            <div className="model-plan-footer">
+              <span>{planStatus}</span>
+              <button className="primary-button" type="button" onClick={onCreatePlan}><Play aria-hidden="true" size={15} />创建分析计划</button>
+            </div>
+          </section>
+        </>
+      ) : activeView === "monitor" ? (
+        <section className="workspace-state-view"><BarChart3 aria-hidden="true" size={30} /><h2>训练监控</h2><p>创建并运行分析任务后，这里展示阶段进度、资源占用、日志和中间指标。</p></section>
+      ) : (
+        <section className="workspace-state-view"><LineChart aria-hidden="true" size={30} /><h2>评估结果</h2><p>任务完成后，这里展示指标、残差、混淆矩阵、聚类质量或方差分析结果。</p></section>
+      )}
+    </div>
+  );
+}
+
+function JobsWorkspace({ jobs, selectedJob }: { jobs: Job[]; selectedJob: Job }) {
+  return (
+    <div className="workspace-scroll module-workspace">
+      <div className="section-heading"><div><span className="section-kicker">运行记录</span><h2>任务队列</h2></div><span>{jobs.length} 个任务</span></div>
+      <div className="module-list">
+        {jobs.map((item) => <ActivityRow key={item.id} time={formatTime(item.updatedAt)} title={item.title} detail={item.message ?? statusLabels[item.status]} state={item.id === selectedJob.id ? "active" : "complete"} />)}
+      </div>
+    </div>
+  );
+}
+
+function ToolsWorkspace({ onImport }: { onImport: () => void }) {
+  return (
+    <div className="workspace-scroll module-workspace">
+      <div className="section-heading"><div><span className="section-kicker">本地能力</span><h2>工具目录</h2></div></div>
+      <div className="tool-grid">
+        <button type="button" onClick={onImport}><Import aria-hidden="true" size={20} /><span><strong>导入文件</strong><small>CSV、XLSX、PDF 和压缩包</small></span></button>
+        <button type="button"><FileText aria-hidden="true" size={20} /><span><strong>文档解析</strong><small>文本层、OCR 和结构化输出</small></span></button>
+        <button type="button"><Database aria-hidden="true" size={20} /><span><strong>数据集版本</strong><small>字段确认和 Parquet 导出</small></span></button>
+        <button type="button"><Box aria-hidden="true" size={20} /><span><strong>模型分析</strong><small>统计、机器学习和深度学习</small></span></button>
+      </div>
+    </div>
+  );
+}
+
 function Metric({
   label,
   value,
@@ -933,6 +1633,66 @@ function formatCell(value: unknown) {
   return String(value);
 }
 
+function fileIconForName(name: string): typeof FileIcon {
+  const suffix = name.toLowerCase().split(".").pop();
+  if (["csv", "xls", "xlsx", "parquet"].includes(suffix ?? "")) {
+    return FileSpreadsheet;
+  }
+  if (["pdf", "doc", "docx", "md", "txt"].includes(suffix ?? "")) {
+    return FileText;
+  }
+  if (["zip", "tar", "tgz", "gz", "7z"].includes(suffix ?? "")) {
+    return Archive;
+  }
+  return FileIcon;
+}
+
+export function filterProjectTree(nodes: ProjectFileNode[], searchText: string): ProjectFileNode[] {
+  return nodes.flatMap((node) => {
+    const children = filterProjectTree(node.children, searchText);
+    if (node.name.toLocaleLowerCase("zh-CN").includes(searchText) || children.length > 0) {
+      return [{ ...node, children }];
+    }
+    return [];
+  });
+}
+
+function findProjectFile(nodes: ProjectFileNode[], relativePath: string): ProjectFileNode | null {
+  for (const node of nodes) {
+    if (node.relativePath === relativePath) {
+      return node;
+    }
+    const nested = findProjectFile(node.children, relativePath);
+    if (nested) {
+      return nested;
+    }
+  }
+  return null;
+}
+
+function asWorkspaceError(error: unknown, operation: string, fallbackMessage: string): WorkspaceError {
+  if (error instanceof WorkspaceClientError) {
+    return error.workspaceError;
+  }
+  return {
+    errorType: error instanceof Error ? error.name : "LocalServiceError",
+    message: error instanceof Error ? error.message : fallbackMessage,
+    operation,
+    recoverable: true,
+    details: {},
+  };
+}
+
+function formatBytes(size: number): string {
+  if (size < 1024) {
+    return `${size} B`;
+  }
+  if (size < 1024 * 1024) {
+    return `${(size / 1024).toFixed(1)} KB`;
+  }
+  return `${(size / 1024 / 1024).toFixed(1)} MB`;
+}
+
 function createInitialFieldTypes(preview: TablePreview) {
   return Object.fromEntries(
     preview.columns.map((column) => [
@@ -966,24 +1726,32 @@ function ActivityRow({
 }
 
 type InspectorPanelProps = {
+  activeRail: string;
   activeTab: string;
   job: Job;
   project: Project;
   preview: TablePreview | null;
   dataset: DatasetVersion | null;
   documentResult: DocumentParseResult | null;
+  selectedAsset: Asset | null;
+  selectedFile: ProjectFileNode | null;
+  selectedAnalysis: string;
   fieldTypes: Record<string, DatasetColumnSpec["dataType"]>;
   onFieldTypeChange: (name: string, dataType: DatasetColumnSpec["dataType"]) => void;
   onTabChange: (tab: string) => void;
 };
 
 function InspectorPanel({
+  activeRail,
   activeTab,
   job,
   project,
   preview,
   dataset,
   documentResult,
+  selectedAsset,
+  selectedFile,
+  selectedAnalysis,
   fieldTypes,
   onFieldTypeChange,
   onTabChange,
@@ -1012,6 +1780,33 @@ function InspectorPanel({
       </div>
 
       <div className="inspector-scroll">
+        {activeTab === "preview" ? (
+          <>
+            <InspectorSection title="当前选择">
+              <PropertyRow label="模块" value={railItems.find((item) => item.id === activeRail)?.label ?? "工作台"} />
+              <PropertyRow label="文件" value={selectedFile?.name ?? selectedAsset?.name ?? "未选择"} />
+              <PropertyRow label="路径" value={selectedFile?.relativePath ?? selectedAsset?.relativePath ?? "不适用"} />
+              <PropertyRow label="类型" value={selectedAsset?.mediaType ?? (selectedFile ? "项目文件" : "不适用")} />
+              <PropertyRow label="大小" value={selectedAsset ? formatBytes(selectedAsset.size) : selectedFile?.size ? formatBytes(selectedFile.size) : "不适用"} />
+            </InspectorSection>
+            {documentResult ? <InspectorSection title="页面范围"><PropertyRow label="总页数" value={String(documentResult.pageCount)} /><PropertyRow label="已 OCR" value={String(documentResult.ocrPages.length)} /></InspectorSection> : null}
+            {preview ? <InspectorSection title="表格范围"><PropertyRow label="总行数" value={preview.rowCount.toLocaleString("zh-CN")} /><PropertyRow label="字段数" value={String(preview.columnCount)} /></InspectorSection> : null}
+          </>
+        ) : activeTab === "changes" ? (
+          <>
+            <InspectorSection title="当前会话变更">
+              <InspectorNotice icon={Import} title="文件树已同步" detail="目录、隐藏项和资产关系" />
+              <InspectorNotice icon={FileText} title="预览状态已更新" detail={selectedFile?.name ?? selectedAsset?.name ?? "等待选择文件"} />
+              <InspectorNotice icon={Box} title="分析配置" detail={analysisMethods.find((item) => item.id === selectedAnalysis)?.label ?? "尚未选择"} />
+            </InspectorSection>
+          </>
+        ) : (
+        <>
+        {activeRail === "models" ? <InspectorSection title="分析配置">
+          <PropertyRow label="方法" value={analysisMethods.find((item) => item.id === selectedAnalysis)?.label ?? "回归"} />
+          <PropertyRow label="运行位置" value="本地 Worker" />
+          <PropertyRow label="配置状态" value="草稿" />
+        </InspectorSection> : null}
         <InspectorSection title="任务状态">
           <PropertyRow label="状态" value={preview ? "等待确认" : statusLabels[job.status]} />
           <PropertyRow label="进度" value={preview ? "100%" : `${job.progress}%`} />
@@ -1098,6 +1893,8 @@ function InspectorPanel({
             {project.path}
           </div>
         </InspectorSection>
+        </>
+        )}
       </div>
     </aside>
   );
@@ -1108,7 +1905,7 @@ function InspectorSection({
   children,
 }: {
   title: string;
-  children: React.ReactNode;
+  children: ReactNode;
 }) {
   return (
     <section className="inspector-section">

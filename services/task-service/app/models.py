@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime
 from enum import StrEnum
-from typing import Any
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -81,6 +81,16 @@ class AssetRecord(ApiModel):
     sha256: str
     parent_asset_id: str | None = None
     created_at: datetime
+
+
+class ProjectFileNode(ApiModel):
+    name: str
+    relative_path: str
+    kind: Literal["directory", "file"]
+    hidden: bool
+    size: int | None = None
+    asset_id: str | None = None
+    children: list["ProjectFileNode"] = Field(default_factory=list)
 
 
 class PreviewColumn(ApiModel):

@@ -43,6 +43,16 @@ export type Asset = {
   createdAt: string;
 };
 
+export type ProjectFileNode = {
+  name: string;
+  relativePath: string;
+  kind: "directory" | "file";
+  hidden: boolean;
+  size?: number | null;
+  assetId?: string | null;
+  children: ProjectFileNode[];
+};
+
 export type PreviewColumn = {
   name: string;
   inferredType: "empty" | "boolean" | "integer" | "number" | "text";

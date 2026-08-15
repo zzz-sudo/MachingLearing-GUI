@@ -124,6 +124,59 @@ def test_missing_document_result_returns_structured_error(tmp_path: Path) -> Non
     assert response.json()["operation"] == "document_get"
 
 
+def test_project_tree_includes_nested_and_hidden_entries(tmp_path: Path) -> None:
+    project_path = tmp_path / "tree-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        hidden_directory = project_path / ".workspace-cache"
+        hidden_directory.mkdir()
+        (hidden_directory / "state.json").write_text("{}", encoding="utf-8")
+        nested_directory = project_path / "source" / "季度报表"
+        nested_directory.mkdir()
+        (nested_directory / "说明.txt").write_text("项目说明", encoding="utf-8")
+
+        complete_tree = client.get(
+            f"/api/projects/{project['id']}/tree",
+            params={"includeHidden": "true"},
+        )
+        visible_tree = client.get(
+            f"/api/projects/{project['id']}/tree",
+            params={"includeHidden": "false"},
+        )
+
+    assert complete_tree.status_code == 200
+    assert complete_tree.json()[0]["name"] == ".workspace-cache"
+    assert complete_tree.json()[0]["hidden"] is True
+    source = next(node for node in complete_tree.json() if node["name"] == "source")
+    nested = next(node for node in source["children"] if node["name"] == "季度报表")
+    assert nested["children"][0]["relativePath"] == "source/季度报表/说明.txt"
+    assert all(node["name"] != ".workspace-cache" for node in visible_tree.json())
+
+
+def test_project_file_content_is_inline_and_restricted_to_project(tmp_path: Path) -> None:
+    project_path = tmp_path / "file-preview-project"
+    outside_file = tmp_path / "outside.txt"
+    outside_file.write_text("private", encoding="utf-8")
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        note_path = project_path / "documents" / "说明.txt"
+        note_path.write_text("项目内预览", encoding="utf-8")
+        content = client.get(
+            f"/api/projects/{project['id']}/files/content",
+            params={"path": "documents/说明.txt"},
+        )
+        escaped = client.get(
+            f"/api/projects/{project['id']}/files/content",
+            params={"path": "../outside.txt"},
+        )
+
+    assert content.status_code == 200
+    assert content.content.decode("utf-8") == "项目内预览"
+    assert content.headers["content-disposition"].startswith("inline;")
+    assert escaped.status_code == 400
+    assert escaped.json()["errorType"] == "FileAccessError"
+
+
 def test_import_gb18030_csv_preserves_chinese_and_profiles_columns(
     tmp_path: Path,
 ) -> None:
@@ -264,6 +317,31 @@ def test_import_digital_pdf_extracts_markdown_and_persists_result(tmp_path: Path
     assert restored.json()["engine"] == "pymupdf"
     assert (project_path / result["markdownRelativePath"]).is_file()
     assert (project_path / result["jsonRelativePath"]).is_file()
+
+
+def test_pdf_content_and_parsed_document_exports(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "digital_chinese_report.pdf"
+    project_path = tmp_path / "document-export-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        imported = import_file(client, str(project["id"]), fixture.name, fixture.read_bytes())
+        asset_id = imported.json()["document"]["assetId"]
+        content = client.get(f"/api/assets/{asset_id}/content")
+        exports = {
+            output_format: client.get(
+                f"/api/assets/{asset_id}/document/export",
+                params={"format": output_format},
+            )
+            for output_format in ("docx", "xlsx", "md", "txt")
+        }
+
+    assert content.status_code == 200
+    assert content.content.startswith(b"%PDF")
+    assert exports["docx"].status_code == 200
+    assert exports["docx"].content.startswith(b"PK")
+    assert exports["xlsx"].content.startswith(b"PK")
+    assert "上海区域销量" in exports["md"].content.decode("utf-8")
+    assert "第 1 页" in exports["txt"].content.decode("utf-8")
 
 
 def test_import_scanned_pdf_routes_page_to_ocr(tmp_path: Path) -> None:
