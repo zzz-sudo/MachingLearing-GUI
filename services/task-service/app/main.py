@@ -12,6 +12,7 @@ from app.errors import WorkspaceServiceError
 from app.routes import router
 from app.settings import resolve_data_dir
 from app.storage import WorkspaceStore
+from app.training import TrainingService
 
 
 def create_app(data_dir: Path | None = None) -> FastAPI:
@@ -22,6 +23,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         store = WorkspaceStore(resolved_data_dir)
         store.initialize()
         application.state.workspace_store = store
+        application.state.training_service = TrainingService(store)
         yield
 
     application = FastAPI(
@@ -54,4 +56,3 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
 
 app = create_app()
-

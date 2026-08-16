@@ -270,6 +270,20 @@ class WorkspaceStore:
             rows = connection.execute(query, parameters).fetchall()
         return [self._job_from_row(row) for row in rows]
 
+    def get_job(self, job_id: str) -> JobRecord:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, title, status, progress, message,
+                       created_at, updated_at
+                FROM jobs WHERE id = ?
+                """,
+                (job_id,),
+            ).fetchone()
+        if row is None:
+            raise job_not_found(job_id)
+        return self._job_from_row(row)
+
     def update_job(self, job_id: str, payload: JobUpdate) -> JobRecord:
         timestamp = utc_now()
         with self._connect() as connection:
@@ -525,6 +539,20 @@ class WorkspaceStore:
                 (project_id,),
             ).fetchall()
         return [self._dataset_from_row(row) for row in rows]
+
+    def get_dataset_version(self, dataset_id: str) -> DatasetVersion:
+        with self._connect() as connection:
+            row = connection.execute(
+                """
+                SELECT id, project_id, source_asset_id, version, parquet_relative_path,
+                       row_count, columns_json, created_at
+                FROM dataset_versions WHERE id = ?
+                """,
+                (dataset_id,),
+            ).fetchone()
+        if row is None:
+            raise project_not_found(dataset_id)
+        return self._dataset_from_row(row)
 
     def get_dataset_version(self, dataset_id: str) -> DatasetVersion:
         with self._connect() as connection:

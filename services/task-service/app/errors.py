@@ -74,6 +74,16 @@ def document_export_error(asset_id: str, output_format: str, reason: str) -> Wor
     )
 
 
+def training_error(message: str, operation: str, **details: Any) -> WorkspaceServiceError:
+    return WorkspaceServiceError(
+        error_type="TrainingError",
+        message=message,
+        operation=operation,
+        status_code=400,
+        details=details,
+    )
+
+
 def import_error(
     error_type: str,
     message: str,

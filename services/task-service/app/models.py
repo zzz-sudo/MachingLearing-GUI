@@ -158,3 +158,23 @@ class DatasetVersion(ApiModel):
     row_count: int
     columns: list[DatasetColumnSpec]
     created_at: datetime
+
+
+class TrainingCreate(ApiModel):
+    dataset_id: str
+    method: Literal["classification", "regression", "anova", "clustering", "deep-learning"]
+    target_column: str | None = None
+    validation_ratio: int = Field(default=20, ge=10, le=40)
+    random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
+    compute_mode: Literal["auto", "cpu", "gpu"] = "auto"
+
+
+class TrainingResult(ApiModel):
+    job_id: str
+    method: str
+    status: JobStatus
+    target_column: str | None = None
+    metrics: dict[str, float] = Field(default_factory=dict)
+    artifact_relative_path: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None

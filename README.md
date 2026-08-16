@@ -193,7 +193,21 @@ PDF 解析结果可以导出以下格式。
 
 模型模块按任务选择、任务设计、训练监控和评估结果组织，不把所有算法参数堆叠在同一页面。第一层先选择分类、回归、方差分析、聚类或深度学习，第二层再配置数据集版本、目标字段、验证集比例、随机种子和 CPU 或 GPU 运行位置。训练监控和评估结果使用独立标签页，为后续 Worker 进度、指标图表、混淆矩阵、残差图和产物下载保留稳定区域。
 
-目前任务设计控件可以切换和生成本地分析计划状态，但训练执行仍需要下一阶段接入 PyTorch 或 scikit-learn Worker。界面明确显示等待 Worker，不伪造模型训练结果。
+模型任务只有在用户确认字段并创建数据集版本后才能启动。启动后服务端创建 Job，单独的本地 Python Worker 读取 Parquet 数据集、按随机种子抽样、执行训练、保存模型产物，并把真实状态和指标写回项目目录。界面只展示 Worker 返回的 queued, running, succeeded 或 failed 状态，不伪造训练进度和评估指标。
+
+传统分类和回归使用 scikit-learn，聚类使用 KMeans，方差分析使用 scipy，深度学习使用本机 PyTorch。默认会使用 `D:\Python\python11\python.exe` 运行训练 Worker，因为该环境已经包含适配本机显卡的 PyTorch、scikit-learn、pandas、PyArrow 和 SciPy。可通过 `ML_GUI_TRAINING_PYTHON` 指定其他 Python 3.11 环境。GPU 被用户明确选择但不可用时，Worker 返回训练错误，不会静默改用 CPU。
+
+训练产物保存为 `models/<job_id>/model.joblib`、`model.pt` 或 `anova.json`，同目录的 `run.json` 保存输入配置，`result.json` 保存状态、指标、目标字段和产物路径。这些文件与 DatasetVersion、Job 和 Asset 标识相互关联，保证训练结果可追踪。
+
+### 真实案例数据
+
+开发运行时示例目录使用公开数据，不把大体积第三方文件提交到 Git 仓库。下载和导入完成后，真实资产会出现在当前项目的 `source` 目录，经过字段确认后再创建 Parquet 数据集。
+
+- UCI Online Retail: 原始 XLSX 交易数据，541,909 条记录和 8 个字段。该数据集用于字段类型确认、缺失值处理、聚类和回归流程，来源为 UCI Machine Learning Repository，采用 CC BY 4.0。
+- Attention Is All You Need: arXiv 1706.03762 原始论文 PDF，共 15 页，用于文本层 PDF、逐页预览、Markdown 和 DOCX、XLSX、TXT 导出流程。
+- Our World in Data CO2 Data README: 原始 Markdown 文档，用于应用内 Markdown 阅读器和 UTF-8 文本预览流程。
+
+来源地址分别为 `https://archive.ics.uci.edu/static/public/352/online+retail.zip`、`https://arxiv.org/pdf/1706.03762.pdf` 和 `https://github.com/owid/co2-data`。使用公开数据时仍需保留来源和许可证信息，不能把案例数据误标为应用自行生成的数据。
 
 ## 文件导入和乱码处理
 

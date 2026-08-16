@@ -55,6 +55,8 @@ def run() -> None:
         "rapidocr",
         "--collect-data",
         "pymupdf",
+        "--add-data",
+        f"{SERVICE_ROOT / 'app' / 'training_worker.py'}{os.pathsep}app",
         "--exclude-module",
         "httpx",
         "--exclude-module",

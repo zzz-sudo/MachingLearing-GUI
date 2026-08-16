@@ -8,6 +8,9 @@ import type {
   ProjectFileNode,
   ServiceHealth,
   TablePreview,
+  Job,
+  TrainingCreate,
+  TrainingResult,
   WorkspaceError,
 } from "@ml-gui/contracts";
 
@@ -44,6 +47,22 @@ export class LocalWorkspaceClient {
 
   async listDatasets(projectId: string): Promise<DatasetVersion[]> {
     return this.request<DatasetVersion[]>(`/projects/${projectId}/datasets`);
+  }
+
+  async listJobs(projectId: string): Promise<Job[]> {
+    return this.request<Job[]>(`/jobs?projectId=${encodeURIComponent(projectId)}`);
+  }
+
+  async createTraining(projectId: string, payload: TrainingCreate): Promise<TrainingResult> {
+    return this.request<TrainingResult>(`/projects/${projectId}/training`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getTrainingResult(jobId: string): Promise<TrainingResult> {
+    return this.request<TrainingResult>(`/jobs/${jobId}/training-result`);
   }
 
   async createDataset(

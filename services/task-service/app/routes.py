@@ -25,14 +25,21 @@ from app.models import (
     ProjectRecord,
     ServiceHealth,
     TablePreview,
+    TrainingCreate,
+    TrainingResult,
 )
 from app.storage import WorkspaceStore
+from app.training import TrainingService
 
 router = APIRouter()
 
 
 def get_store(request: Request) -> WorkspaceStore:
     return request.app.state.workspace_store
+
+
+def get_training_service(request: Request) -> TrainingService:
+    return request.app.state.training_service
 
 
 @router.get("/health", response_model=ServiceHealth)
@@ -172,5 +179,15 @@ def create_job(payload: JobCreate, request: Request) -> JobRecord:
 @router.patch("/jobs/{job_id}", response_model=JobRecord)
 def update_job(job_id: str, payload: JobUpdate, request: Request) -> JobRecord:
     return get_store(request).update_job(job_id, payload)
+
+
+@router.post("/projects/{project_id}/training", response_model=TrainingResult, status_code=202)
+def create_training(project_id: str, payload: TrainingCreate, request: Request) -> TrainingResult:
+    return get_training_service(request).start(project_id, payload)
+
+
+@router.get("/jobs/{job_id}/training-result", response_model=TrainingResult)
+def get_training_result(job_id: str, request: Request) -> TrainingResult:
+    return get_training_service(request).get_result(job_id)
     AssetRecord,
     ImportResult,

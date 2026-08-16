@@ -11,6 +11,8 @@ import type {
   ServiceHealth,
   TablePreview,
   WorkspaceError,
+  TrainingCreate,
+  TrainingResult,
 } from "@ml-gui/contracts";
 import {
   Archive,
@@ -58,10 +60,9 @@ import {
   LocalWorkspaceClient,
   WorkspaceClientError,
 } from "./api/localWorkspaceClient";
-import { demoJobs, demoProjects } from "./data/demo";
+import { demoProjects } from "./data/demo";
 
 const workspaceClient = new LocalWorkspaceClient();
-const initialJob = demoJobs[0]!;
 const initialProject = demoProjects[0]!;
 
 const railItems = [
@@ -94,7 +95,9 @@ export function App() {
   const [activeRail, setActiveRail] = useState("workspace");
   const [activeInspector, setActiveInspector] = useState("properties");
   const [activeMode, setActiveMode] = useState("task");
-  const [selectedJobId, setSelectedJobId] = useState(initialJob.id);
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [trainingResult, setTrainingResult] = useState<TrainingResult | null>(null);
   const [prompt, setPrompt] = useState("");
   const [health, setHealth] = useState<ServiceHealth | null>(null);
   const [serviceError, setServiceError] = useState<string | null>(null);
@@ -141,6 +144,9 @@ export function App() {
         setFileTree(await workspaceClient.getProjectTree(project.id, true));
         const datasets = await workspaceClient.listDatasets(project.id);
         setDataset(datasets[0] ?? null);
+        const projectJobs = await workspaceClient.listJobs(project.id);
+        setJobs(projectJobs);
+        setSelectedJobId(projectJobs[0]?.id ?? null);
         for (const asset of projectAssets) {
           if (asset.name.toLowerCase().endsWith(".pdf")) {
             try {
@@ -183,14 +189,36 @@ export function App() {
       });
   }, [projectReady, selectedProject.id, showHidden]);
 
+  useEffect(() => {
+    if (!projectReady) {
+      return;
+    }
+    const refreshJobs = () => void workspaceClient.listJobs(selectedProject.id)
+      .then((nextJobs) => {
+        setJobs(nextJobs);
+        setSelectedJobId((current) => current ?? nextJobs[0]?.id ?? null);
+      })
+      .catch(() => undefined);
+    refreshJobs();
+    const timer = window.setInterval(refreshJobs, 2000);
+    return () => window.clearInterval(timer);
+  }, [projectReady, selectedProject.id]);
+
   const selectedJob = useMemo(
-    () => demoJobs.find((job) => job.id === selectedJobId) ?? initialJob,
-    [selectedJobId],
+    () => jobs.find((job) => job.id === selectedJobId) ?? null,
+    [jobs, selectedJobId],
   );
   const selectedProjectFile = useMemo(
     () => selectedFilePath ? findProjectFile(fileTree, selectedFilePath) : null,
     [fileTree, selectedFilePath],
   );
+
+  useEffect(() => {
+    if (!selectedJob || !["succeeded", "failed"].includes(selectedJob.status)) {
+      return;
+    }
+    void workspaceClient.getTrainingResult(selectedJob.id).then(setTrainingResult).catch(() => undefined);
+  }, [selectedJob?.id, selectedJob?.status]);
 
   async function importSelectedFile(file: File) {
     if (!projectReady) {
@@ -248,6 +276,12 @@ export function App() {
       }
       return;
     }
+    if (isTextPreviewFile(asset.name)) {
+      setPreview(null);
+      setDocumentResult(null);
+      setActiveRail("documents");
+      return;
+    }
     try {
       const restoredPreview = await workspaceClient.getPreview(assetId);
       setPreview(restoredPreview);
@@ -294,6 +328,19 @@ export function App() {
     }
   }
 
+  async function createTraining(payload: TrainingCreate) {
+    try {
+      const result = await workspaceClient.createTraining(selectedProject.id, payload);
+      setTrainingResult(result);
+      setModelPlanStatus("训练任务已提交给本地 Worker");
+      const nextJobs = await workspaceClient.listJobs(selectedProject.id);
+      setJobs(nextJobs);
+      setSelectedJobId(result.jobId);
+    } catch (error: unknown) {
+      setImportError(asWorkspaceError(error, "training_create", "无法创建训练任务"));
+    }
+  }
+
   function submitPrompt() {
     const message = prompt.trim();
     if (!message) {
@@ -328,7 +375,7 @@ export function App() {
         <Panel defaultSize={19} minSize={15} maxSize={28}>
           <ContextSidebar
             activeRail={activeRail}
-            jobs={demoJobs}
+            jobs={jobs}
             project={selectedProject}
             assets={assets}
             fileTree={fileTree}
@@ -379,12 +426,14 @@ export function App() {
               selectedFile={selectedProjectFile}
               selectedAnalysis={selectedAnalysis}
               modelPlanStatus={modelPlanStatus}
+              jobs={jobs}
+              trainingResult={trainingResult}
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
               onExport={() => dataset && window.open(workspaceClient.getParquetUrl(dataset.id), "_blank")}
               onImport={() => projectReady && fileInputRef.current?.click()}
               onSelectAnalysis={setSelectedAnalysis}
-              onCreateModelPlan={() => setModelPlanStatus("分析计划已创建，等待接入训练 Worker")}
+              onCreateModelPlan={createTraining}
             />
             <CommandDock
               activeMode={activeMode}
@@ -591,7 +640,7 @@ type ContextSidebarProps = {
   showHidden: boolean;
   importing: boolean;
   projectReady: boolean;
-  selectedJobId: string;
+  selectedJobId: string | null;
   selectedFilePath: string | null;
   selectedAnalysis: string;
   onImport: () => void;
@@ -954,12 +1003,12 @@ function WorkspaceHeader({
   );
 }
 
-function WorkflowBar({ activeRail, job, preview }: { activeRail: string; job: Job; preview: TablePreview | null }) {
+function WorkflowBar({ activeRail, job, preview }: { activeRail: string; job: Job | null; preview: TablePreview | null }) {
   const steps = activeRail === "documents"
     ? ["读取文件", "页面解析", "内容检查", "格式导出"]
     : ["导入", "字段检查", "训练配置", "模型训练", "结果评估"];
   const documentIndex = activeRail === "documents" ? 2 : null;
-  const activeIndex = preview ? 1 : job.status === "succeeded" ? 4 : 3;
+  const activeIndex = preview ? 1 : job?.status === "succeeded" ? 4 : job ? 3 : 0;
 
   return (
     <div
@@ -989,7 +1038,8 @@ function WorkflowBar({ activeRail, job, preview }: { activeRail: string; job: Jo
 
 type WorkspaceContentProps = {
   activeRail: string;
-  job: Job;
+  job: Job | null;
+  jobs: Job[];
   project: Project;
   preview: TablePreview | null;
   importError: WorkspaceError | null;
@@ -1001,17 +1051,19 @@ type WorkspaceContentProps = {
   selectedFile: ProjectFileNode | null;
   selectedAnalysis: string;
   modelPlanStatus: string;
+  trainingResult: TrainingResult | null;
   projectReady: boolean;
   onImport: () => void;
   onConfirm: () => void;
   onExport: () => void;
   onSelectAnalysis: (analysis: string) => void;
-  onCreateModelPlan: () => void;
+  onCreateModelPlan: (payload: TrainingCreate) => void;
 };
 
 function WorkspaceContent({
   activeRail,
   job,
+  jobs,
   project,
   preview,
   importError,
@@ -1023,6 +1075,7 @@ function WorkspaceContent({
   selectedFile,
   selectedAnalysis,
   modelPlanStatus,
+  trainingResult,
   projectReady,
   onImport,
   onConfirm,
@@ -1050,9 +1103,11 @@ function WorkspaceContent({
   if (activeRail === "models") {
     return (
       <ModelWorkspace
-        datasetsAvailable={dataset ? 1 : 0}
+        dataset={dataset}
         selectedAnalysis={selectedAnalysis}
         planStatus={modelPlanStatus}
+        selectedJob={job}
+        trainingResult={trainingResult}
         onSelectAnalysis={onSelectAnalysis}
         onCreatePlan={onCreateModelPlan}
       />
@@ -1060,22 +1115,36 @@ function WorkspaceContent({
   }
 
   if (activeRail === "jobs") {
-    return <JobsWorkspace jobs={demoJobs} selectedJob={job} />;
+    return <JobsWorkspace jobs={jobs} selectedJob={job} />;
   }
 
   if (activeRail === "tools") {
     return <ToolsWorkspace onImport={onImport} />;
   }
 
+  if (!preview && !documentResult) {
+    return (
+      <div className="workspace-scroll empty-workspace">
+        <Database aria-hidden="true" size={32} />
+        <h2>从真实文件开始</h2>
+        <p>导入表格后确认字段类型并创建数据集版本，导入 PDF 后可在文档工作区查看原件、解析内容和导出结果。</p>
+        <button className="primary-button" type="button" onClick={onImport} disabled={importing || !projectReady}>
+          <Import aria-hidden="true" size={15} />
+          {importing ? "正在导入" : "导入文件"}
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div className="workspace-scroll">
       <section className="summary-band">
         <div>
-          <span className={`status-dot status-${preview ? "waiting_confirmation" : job.status}`} />
+          <span className={`status-dot status-${preview ? "waiting_confirmation" : job?.status ?? "queued"}`} />
           <div>
             <span className="section-kicker">当前任务</span>
-            <h2>{preview ? `检查 ${preview.sourceName} 的字段` : job.title}</h2>
-            <p>{preview ? `已读取 ${preview.rowCount.toLocaleString("zh-CN")} 行数据，请确认字段类型和空值。` : job.message}</p>
+            <h2>{preview ? `检查 ${preview.sourceName} 的字段` : job?.title ?? "等待训练任务"}</h2>
+            <p>{preview ? `已读取 ${preview.rowCount.toLocaleString("zh-CN")} 行数据，请确认字段类型和空值。` : job?.message ?? "请先选择数据集并在模型工作区创建训练任务。"}</p>
           </div>
         </div>
         <div className="task-controls">
@@ -1216,13 +1285,9 @@ function WorkspaceContent({
               <ActivityRow time="刚刚" title="表格结构已读取" detail={`${preview.columnCount} 个字段, ${preview.rowCount.toLocaleString("zh-CN")} 行`} state="complete" />
               <ActivityRow time="当前" title="等待字段确认" detail="确认字段类型后可创建数据集版本" state="active" />
             </>
-          ) : (
-            <>
-              <ActivityRow time="14:32:18" title="训练数据准备完成" detail="训练集 33,751 行, 验证集 7,232 行, 测试集 7,233 行" state="complete" />
-              <ActivityRow time="14:32:21" title="类别字段编码完成" detail="处理 9 个类别字段, 未发现未知类别" state="complete" />
-              <ActivityRow time="14:33:04" title="HistGradientBoosting 训练中" detail={`当前进度 ${job.progress}%, 预计剩余 1 分 24 秒`} state="active" />
-            </>
-          )}
+          ) : job ? (
+            <ActivityRow time={formatTime(job.updatedAt)} title={job.title} detail={job.message ?? statusLabels[job.status]} state={job.status === "running" ? "active" : "complete"} />
+          ) : <ActivityRow time="当前" title="暂无执行记录" detail="创建训练任务后显示真实 Worker 状态" state="active" />}
         </div>
       </section>
     </div>
@@ -1293,6 +1358,8 @@ function DocumentWorkspace({
       {viewMode === "original" ? (
         fileName.toLowerCase().endsWith(".pdf") ? (
           <PdfDocumentViewer fileName={fileName} url={contentUrl} />
+        ) : isTextPreviewFile(fileName) ? (
+          <TextFileViewer fileName={fileName} url={contentUrl} />
         ) : (
           <iframe className="office-document-frame" src={contentUrl} title={`${fileName} 原文件预览`} />
         )
@@ -1311,6 +1378,39 @@ function DocumentWorkspace({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function TextFileViewer({ fileName, url }: { fileName: string; url: string }) {
+  const [content, setContent] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    setContent(null);
+    setLoadError(null);
+    void fetch(url, { signal: controller.signal })
+      .then((response) => response.ok ? response.text() : Promise.reject(new Error(`HTTP ${response.status}`)))
+      .then(setContent)
+      .catch((error: unknown) => {
+        if (!(error instanceof DOMException && error.name === "AbortError")) {
+          setLoadError(error instanceof Error ? error.message : "文本文件读取失败");
+        }
+      });
+    return () => controller.abort();
+  }, [url]);
+
+  if (loadError) {
+    return <div className="text-file-state"><FileText aria-hidden="true" size={28} /><strong>无法读取项目文本</strong><span>{loadError}</span></div>;
+  }
+  if (content === null) {
+    return <div className="text-file-state"><FileText aria-hidden="true" size={28} /><strong>正在读取文件</strong><span>{fileName}</span></div>;
+  }
+  return (
+    <article className="text-file-viewer">
+      <header><strong>{fileName}</strong><span>{fileName.toLowerCase().endsWith(".json") ? "JSON" : "文本"}</span></header>
+      <pre>{formatTextPreview(fileName, content)}</pre>
+    </article>
   );
 }
 
@@ -1460,24 +1560,38 @@ function PdfCanvasPage({ pageNumber, pdf }: { pageNumber: number; pdf: PdfDocume
 }
 
 function ModelWorkspace({
-  datasetsAvailable,
+  dataset,
   selectedAnalysis,
   planStatus,
+  selectedJob,
+  trainingResult,
   onSelectAnalysis,
   onCreatePlan,
 }: {
-  datasetsAvailable: number;
+  dataset: DatasetVersion | null;
   selectedAnalysis: string;
   planStatus: string;
+  selectedJob: Job | null;
+  trainingResult: TrainingResult | null;
   onSelectAnalysis: (analysis: string) => void;
-  onCreatePlan: () => void;
+  onCreatePlan: (payload: TrainingCreate) => void;
 }) {
-  const [targetColumn, setTargetColumn] = useState("销售额");
+  const [targetColumn, setTargetColumn] = useState("");
   const [validationRatio, setValidationRatio] = useState(20);
   const [randomSeed, setRandomSeed] = useState(42);
   const [computeMode, setComputeMode] = useState("auto");
   const [activeView, setActiveView] = useState("design");
   const method = analysisMethods.find((item) => item.id === selectedAnalysis) ?? analysisMethods[0]!;
+  const targetRequired = selectedAnalysis !== "clustering";
+
+  useEffect(() => {
+    if (!dataset) {
+      setTargetColumn("");
+      return;
+    }
+    const defaultTarget = dataset.columns.find((column) => ["integer", "number"].includes(column.dataType))?.name ?? dataset.columns[0]?.name ?? "";
+    setTargetColumn((current) => dataset.columns.some((column) => column.name === current) ? current : defaultTarget);
+  }, [dataset]);
 
   return (
     <div className="workspace-scroll model-workspace">
@@ -1495,7 +1609,7 @@ function ModelWorkspace({
         <>
           <section className="model-intro-band">
             <div><span className="section-kicker">分析任务</span><h2>{method.label}</h2><p>{method.detail}。先选择方法，再确认数据、字段和验证方式。</p></div>
-            <div><span>可用数据集</span><strong>{datasetsAvailable}</strong></div>
+            <div><span>可用数据集</span><strong>{dataset ? 1 : 0}</strong></div>
           </section>
 
           <section className="analysis-method-section">
@@ -1517,8 +1631,8 @@ function ModelWorkspace({
             <div className="section-heading"><div><span className="section-kicker">任务参数</span><h2>数据和运行配置</h2></div></div>
             <div className="model-config-grid">
               <div className="config-column">
-                <label><span>数据集</span><select><option>当前数据集最新版本</option></select></label>
-                <label><span>目标字段</span><select value={targetColumn} onChange={(event) => setTargetColumn(event.target.value)}><option>销售额</option><option>销量</option><option>是否促销</option></select></label>
+                <label><span>数据集</span><select value={dataset?.id ?? ""} disabled><option value="">请先创建数据集版本</option>{dataset ? <option value={dataset.id}>数据集 v{dataset.version}</option> : null}</select></label>
+                <label><span>{targetRequired ? "目标字段" : "分组字段"}</span><select value={targetColumn} disabled={!dataset || !targetRequired} onChange={(event) => setTargetColumn(event.target.value)}><option value="">请选择字段</option>{dataset?.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
                 <label><span>验证集比例</span><div className="range-control"><input type="range" min="10" max="40" step="5" value={validationRatio} onChange={(event) => setValidationRatio(Number(event.target.value))} /><output>{validationRatio}%</output></div></label>
                 <label><span>随机种子</span><input type="number" value={randomSeed} onChange={(event) => setRandomSeed(Number(event.target.value))} /></label>
               </div>
@@ -1531,7 +1645,7 @@ function ModelWorkspace({
                 </div>
                 <div className="plan-summary">
                   <PropertyRow label="分析方法" value={method.label} />
-                  <PropertyRow label="目标字段" value={targetColumn} />
+                  <PropertyRow label={targetRequired ? "目标字段" : "无监督任务"} value={targetRequired ? targetColumn || "未选择" : "不需要目标字段"} />
                   <PropertyRow label="验证比例" value={`${validationRatio}%`} />
                   <PropertyRow label="计算位置" value={computeMode.toUpperCase()} />
                   <PropertyRow label="随机种子" value={String(randomSeed)} />
@@ -1540,25 +1654,31 @@ function ModelWorkspace({
             </div>
             <div className="model-plan-footer">
               <span>{planStatus}</span>
-              <button className="primary-button" type="button" onClick={onCreatePlan}><Play aria-hidden="true" size={15} />创建分析计划</button>
+              <button className="primary-button" disabled={!dataset || (targetRequired && !targetColumn)} type="button" onClick={() => {
+                if (!dataset) {
+                  return;
+                }
+                onCreatePlan({ datasetId: dataset.id, method: selectedAnalysis as TrainingCreate["method"], targetColumn: targetRequired ? targetColumn : null, validationRatio, randomSeed, computeMode: computeMode as TrainingCreate["computeMode"] });
+                setActiveView("monitor");
+              }}><Play aria-hidden="true" size={15} />启动本地训练</button>
             </div>
           </section>
         </>
       ) : activeView === "monitor" ? (
-        <section className="workspace-state-view"><BarChart3 aria-hidden="true" size={30} /><h2>训练监控</h2><p>创建并运行分析任务后，这里展示阶段进度、资源占用、日志和中间指标。</p></section>
+        <section className="workspace-state-view"><BarChart3 aria-hidden="true" size={30} /><h2>{selectedJob ? selectedJob.title : "训练监控"}</h2><p>{selectedJob ? `${statusLabels[selectedJob.status]}，进度 ${selectedJob.progress}%。${selectedJob.message ?? ""}` : "创建数据集并启动训练后，这里显示 Worker 的真实状态。"}</p></section>
       ) : (
-        <section className="workspace-state-view"><LineChart aria-hidden="true" size={30} /><h2>评估结果</h2><p>任务完成后，这里展示指标、残差、混淆矩阵、聚类质量或方差分析结果。</p></section>
+        <section className="workspace-state-view"><LineChart aria-hidden="true" size={30} /><h2>评估结果</h2>{trainingResult?.status === "succeeded" ? <div className="training-metrics">{Object.entries(trainingResult.metrics).map(([name, value]) => <span key={name}>{name}: {value.toFixed(4)}</span>)}</div> : <p>{trainingResult?.errorMessage ?? "任务完成后，这里显示真实指标和模型产物路径。"}</p>}</section>
       )}
     </div>
   );
 }
 
-function JobsWorkspace({ jobs, selectedJob }: { jobs: Job[]; selectedJob: Job }) {
+function JobsWorkspace({ jobs, selectedJob }: { jobs: Job[]; selectedJob: Job | null }) {
   return (
     <div className="workspace-scroll module-workspace">
       <div className="section-heading"><div><span className="section-kicker">运行记录</span><h2>任务队列</h2></div><span>{jobs.length} 个任务</span></div>
       <div className="module-list">
-        {jobs.map((item) => <ActivityRow key={item.id} time={formatTime(item.updatedAt)} title={item.title} detail={item.message ?? statusLabels[item.status]} state={item.id === selectedJob.id ? "active" : "complete"} />)}
+        {jobs.map((item) => <ActivityRow key={item.id} time={formatTime(item.updatedAt)} title={item.title} detail={item.message ?? statusLabels[item.status]} state={item.id === selectedJob?.id ? "active" : "complete"} />)}
       </div>
     </div>
   );
@@ -1670,6 +1790,21 @@ function findProjectFile(nodes: ProjectFileNode[], relativePath: string): Projec
   return null;
 }
 
+function isTextPreviewFile(fileName: string): boolean {
+  return [".json", ".md", ".markdown", ".txt", ".yaml", ".yml"].some((suffix) => fileName.toLowerCase().endsWith(suffix));
+}
+
+function formatTextPreview(fileName: string, content: string): string {
+  if (!fileName.toLowerCase().endsWith(".json")) {
+    return content;
+  }
+  try {
+    return JSON.stringify(JSON.parse(content), null, 2);
+  } catch {
+    return content;
+  }
+}
+
 function asWorkspaceError(error: unknown, operation: string, fallbackMessage: string): WorkspaceError {
   if (error instanceof WorkspaceClientError) {
     return error.workspaceError;
@@ -1728,7 +1863,7 @@ function ActivityRow({
 type InspectorPanelProps = {
   activeRail: string;
   activeTab: string;
-  job: Job;
+  job: Job | null;
   project: Project;
   preview: TablePreview | null;
   dataset: DatasetVersion | null;
@@ -1808,16 +1943,16 @@ function InspectorPanel({
           <PropertyRow label="配置状态" value="草稿" />
         </InspectorSection> : null}
         <InspectorSection title="任务状态">
-          <PropertyRow label="状态" value={preview ? "等待确认" : statusLabels[job.status]} />
-          <PropertyRow label="进度" value={preview ? "100%" : `${job.progress}%`} />
-          <div className="progress-track" aria-label={`任务进度 ${preview ? 100 : job.progress}%`}>
-            <span style={{ width: `${preview ? 100 : job.progress}%` }} />
+          <PropertyRow label="状态" value={preview ? "等待确认" : job ? statusLabels[job.status] : "尚未开始"} />
+          <PropertyRow label="进度" value={preview ? "100%" : job ? `${job.progress}%` : "0%"} />
+          <div className="progress-track" aria-label={`任务进度 ${preview ? 100 : job?.progress ?? 0}%`}>
+            <span style={{ width: `${preview ? 100 : job?.progress ?? 0}%` }} />
           </div>
           <PropertyRow label="运行位置" value="本地 Worker" />
           <PropertyRow label="更新时间" value="今天 14:33" />
         </InspectorSection>
 
-        {!preview ? <InspectorSection title="训练配置">
+        {!preview && job ? <InspectorSection title="训练配置">
           <PropertyRow label="任务类型" value="回归" />
           <PropertyRow label="目标列" value="销售额" />
           <PropertyRow label="算法" value="HistGradientBoosting" />

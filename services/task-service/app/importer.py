@@ -28,6 +28,7 @@ MAX_ARCHIVE_FILES = 2000
 MAX_ARCHIVE_BYTES = 512 * 1024 * 1024
 TABLE_SUFFIXES = {".csv", ".xlsx"}
 DOCUMENT_SUFFIXES = {".pdf"}
+TEXT_SUFFIXES = {".md", ".markdown", ".txt", ".json", ".yaml", ".yml"}
 ARCHIVE_SUFFIXES = {".zip", ".tar", ".tgz", ".gz"}
 
 
@@ -83,13 +84,13 @@ class FileImporter:
             preview = self._preview_table(source_path, source_asset.id)
         elif source_path.suffix.lower() in DOCUMENT_SUFFIXES:
             document = PdfDocumentService().parse(source_path, source_asset.id, Path(project.path))
-        else:
+        elif source_path.suffix.lower() not in TEXT_SUFFIXES:
             raise import_error(
                 "UnsupportedFileFormatError",
                 f"当前版本不支持该文件格式: {source_path.suffix or safe_name}",
                 "file_import",
                 filename=safe_name,
-                supportedFormats=sorted(TABLE_SUFFIXES | DOCUMENT_SUFFIXES | ARCHIVE_SUFFIXES),
+                supportedFormats=sorted(TABLE_SUFFIXES | DOCUMENT_SUFFIXES | TEXT_SUFFIXES | ARCHIVE_SUFFIXES),
             )
 
         if preview is not None:

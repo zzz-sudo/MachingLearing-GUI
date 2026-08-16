@@ -177,6 +177,18 @@ def test_project_file_content_is_inline_and_restricted_to_project(tmp_path: Path
     assert escaped.json()["errorType"] == "FileAccessError"
 
 
+def test_import_markdown_records_a_text_asset(tmp_path: Path) -> None:
+    project_path = tmp_path / "markdown-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        imported = import_file(client, str(project["id"]), "研究说明.md", "# 真实文本\n数据来源说明".encode("utf-8"))
+
+    assert imported.status_code == 201
+    assert imported.json()["preview"] is None
+    assert imported.json()["document"] is None
+    assert imported.json()["importedAssets"][0]["name"] == "研究说明.md"
+
+
 def test_import_gb18030_csv_preserves_chinese_and_profiles_columns(
     tmp_path: Path,
 ) -> None:

@@ -25,6 +25,26 @@ export type Job = {
   message?: string;
 };
 
+export type TrainingCreate = {
+  datasetId: string;
+  method: "classification" | "regression" | "anova" | "clustering" | "deep-learning";
+  targetColumn?: string | null;
+  validationRatio: number;
+  randomSeed: number;
+  computeMode: "auto" | "cpu" | "gpu";
+};
+
+export type TrainingResult = {
+  jobId: string;
+  method: string;
+  status: JobStatus;
+  targetColumn?: string | null;
+  metrics: Record<string, number>;
+  artifactRelativePath?: string | null;
+  errorType?: string | null;
+  errorMessage?: string | null;
+};
+
 export type ServiceHealth = {
   status: "ready";
   service: string;
