@@ -199,19 +199,42 @@ class AlgorithmCatalog(ApiModel):
 
 class TrainingCreate(ApiModel):
     dataset_id: str
-    method: Literal["classification", "regression", "anova", "clustering", "deep-learning"]
+    method: Literal["classification", "regression", "anova", "clustering", "deep-learning"] | None = None
+    task_type: str | None = None
+    algorithm_id: str | None = None
     target_column: str | None = None
+    feature_columns: list[str] = Field(default_factory=list)
+    factor_columns: list[str] = Field(default_factory=list)
+    time_column: str | None = None
+    group_column: str | None = None
     validation_ratio: int = Field(default=20, ge=10, le=40)
+    test_ratio: int = Field(default=20, ge=10, le=40)
     random_seed: int = Field(default=42, ge=0, le=2_147_483_647)
     compute_mode: Literal["auto", "cpu", "gpu"] = "auto"
+    parameters: dict[str, bool | int | float | str] = Field(default_factory=dict)
+
+
+class TrainingArtifact(ApiModel):
+    kind: str
+    relative_path: str
+    media_type: str
+    description: str
 
 
 class TrainingResult(ApiModel):
     job_id: str
     method: str
+    task_type: str | None = None
+    algorithm_id: str | None = None
     status: JobStatus
     target_column: str | None = None
+    feature_columns: list[str] = Field(default_factory=list)
+    parameters: dict[str, bool | int | float | str] = Field(default_factory=dict)
     metrics: dict[str, float] = Field(default_factory=dict)
+    tables: dict[str, list[dict[str, Any]]] = Field(default_factory=dict)
+    artifacts: list[TrainingArtifact] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    environment: dict[str, str] = Field(default_factory=dict)
     artifact_relative_path: str | None = None
     error_type: str | None = None
     error_message: str | None = None

@@ -215,6 +215,12 @@ PDF 解析结果可以导出以下格式。
 
 多因素方差分析在本项目中表示 factorial ANOVA，不等同于多个因变量的 MANOVA。序列算法要求用户明确选择时间字段、目标字段、特征字段、窗口长度和预测步长，并使用按时间顺序切分的数据，禁止沿用普通表格任务的随机切分方式。
 
+监督学习 Runner 已经实现逻辑回归、决策树分类、随机森林分类和回归、极端随机树分类和回归、直方图梯度提升分类和回归、线性回归、岭回归以及 XGBoost 分类和回归。训练请求可以指定特征字段和算法超参数。Worker 会根据训练数据自动建立数值缺失值填充和标准化、类别缺失值填充和 One-Hot 编码，并把预处理 Pipeline、模型和分类目标编码器一起保存为 `model.joblib`。
+
+分类结果包含 accuracy、balanced accuracy、weighted precision、weighted recall、weighted F1、可用时的 log loss、混淆矩阵和特征重要性。回归结果包含 MAE、MSE、RMSE、R squared、残差预览和特征重要性。`result.json` 同时保存算法 ID、实际特征顺序、规范化超参数、依赖版本和产物清单。自动测试会训练每个监督学习算法、重新加载产物并比较加载前后的预测结果。
+
+Task Service 的基础环境和训练环境继续分离。`pyproject.toml` 的 `training` extra 声明传统机器学习和统计分析依赖。PyTorch 需要依据目标设备和 CUDA 版本单独安装，不能由普通 PyPI 依赖在所有设备上隐式选择。训练 Worker 默认使用 `D:\Python\python11\python.exe`，也可以通过 `ML_GUI_TRAINING_PYTHON` 指向具备所需算法依赖的 Python 3.11 环境。
+
 ### 真实案例数据
 
 开发运行时示例目录使用公开数据，不把大体积第三方文件提交到 Git 仓库。下载和导入完成后，真实资产会出现在当前项目的 `source` 目录，经过字段确认后再创建 Parquet 数据集。

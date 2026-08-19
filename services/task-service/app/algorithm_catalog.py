@@ -137,6 +137,55 @@ ALGORITHMS = [
 
 ALGORITHM_BY_ID = {algorithm.id: algorithm for algorithm in ALGORITHMS}
 
+LEGACY_METHOD_DEFAULTS = {
+    "classification": "random_forest_classifier",
+    "regression": "random_forest_regressor",
+    "clustering": "kmeans",
+    "anova": "one_way_anova",
+    "deep-learning": "lstm_regressor",
+}
+
+
+def resolve_algorithm_id(algorithm_id: str | None, legacy_method: str | None) -> str:
+    resolved = algorithm_id or LEGACY_METHOD_DEFAULTS.get(legacy_method or "")
+    if not resolved or resolved not in ALGORITHM_BY_ID:
+        raise ValueError(f"未知算法: {algorithm_id or legacy_method or '未指定'}")
+    return resolved
+
+
+def normalize_parameters(
+    algorithm_id: str,
+    supplied: dict[str, bool | int | float | str],
+) -> dict[str, bool | int | float | str]:
+    definition = ALGORITHM_BY_ID[algorithm_id]
+    available = {parameter.id: parameter for parameter in definition.parameters}
+    unknown = sorted(set(supplied) - set(available))
+    if unknown:
+        raise ValueError(f"算法 {algorithm_id} 不支持参数: {', '.join(unknown)}")
+
+    normalized: dict[str, bool | int | float | str] = {}
+    for parameter_id, parameter in available.items():
+        value = supplied.get(parameter_id, parameter.default)
+        if parameter.value_type == "integer":
+            if isinstance(value, bool) or not isinstance(value, (int, float)) or int(value) != value:
+                raise ValueError(f"参数 {parameter_id} 必须是整数")
+            value = int(value)
+        elif parameter.value_type == "number":
+            if isinstance(value, bool) or not isinstance(value, (int, float)):
+                raise ValueError(f"参数 {parameter_id} 必须是数值")
+            value = float(value)
+        elif parameter.value_type == "boolean" and not isinstance(value, bool):
+            raise ValueError(f"参数 {parameter_id} 必须是布尔值")
+        elif parameter.value_type == "select" and str(value) not in parameter.options:
+            raise ValueError(f"参数 {parameter_id} 必须是以下选项之一: {', '.join(parameter.options)}")
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            if parameter.minimum is not None and value < parameter.minimum:
+                raise ValueError(f"参数 {parameter_id} 不能小于 {parameter.minimum}")
+            if parameter.maximum is not None and value > parameter.maximum:
+                raise ValueError(f"参数 {parameter_id} 不能大于 {parameter.maximum}")
+        normalized[parameter_id] = value
+    return normalized
+
 
 def get_algorithm_catalog() -> AlgorithmCatalog:
     return AlgorithmCatalog(algorithms=ALGORITHMS)

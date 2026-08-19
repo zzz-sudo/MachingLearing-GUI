@@ -7,6 +7,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from app.algorithm_catalog import ALGORITHM_BY_ID, normalize_parameters, resolve_algorithm_id
 from app.errors import training_error
 from app.models import JobCreate, JobStatus, JobUpdate, TrainingCreate, TrainingResult
 from app.storage import WorkspaceStore
@@ -23,21 +24,34 @@ class TrainingService:
         dataset = self.store.get_dataset_version(payload.dataset_id)
         if dataset.project_id != project_id:
             raise training_error("数据集不属于当前项目", "training_create", datasetId=payload.dataset_id)
-        if payload.method not in {"clustering", "anova"} and not payload.target_column:
-            raise training_error("当前分析方法需要选择目标字段", "training_create", method=payload.method)
+        try:
+            algorithm_id = resolve_algorithm_id(payload.algorithm_id, payload.method)
+            definition = ALGORITHM_BY_ID[algorithm_id]
+            parameters = normalize_parameters(algorithm_id, payload.parameters)
+        except ValueError as error:
+            raise training_error(str(error), "training_create", algorithmId=payload.algorithm_id) from error
+        if payload.task_type and payload.task_type != definition.task_type:
+            raise training_error(
+                "任务类型与算法定义不一致",
+                "training_create",
+                algorithmId=algorithm_id,
+                expectedTaskType=definition.task_type,
+                suppliedTaskType=payload.task_type,
+            )
+        if definition.requires_target and not payload.target_column:
+            raise training_error("当前算法需要选择目标字段", "training_create", algorithmId=algorithm_id)
+        if definition.requires_factors and not payload.factor_columns:
+            # Keep legacy one-way ANOVA compatible until the statistical runner is connected.
+            if not (algorithm_id == "one_way_anova" and payload.target_column and payload.method == "anova"):
+                raise training_error("当前算法需要选择因素字段", "training_create", algorithmId=algorithm_id)
+        if definition.requires_time and not payload.time_column:
+            raise training_error("当前算法需要选择时间字段", "training_create", algorithmId=algorithm_id)
 
         project = self.store.get_project(project_id)
-        labels = {
-            "classification": "分类",
-            "regression": "回归",
-            "anova": "方差分析",
-            "clustering": "聚类",
-            "deep-learning": "深度学习",
-        }
         job = self.store.create_job(
             JobCreate(
                 project_id=project_id,
-                title=f"{labels[payload.method]} 分析",
+                title=f"{definition.name} 分析",
                 message="等待本地训练 Worker",
             )
         )
@@ -51,11 +65,19 @@ class TrainingService:
                     "jobId": job.id,
                     "projectRoot": project.path,
                     "datasetPath": str(Path(project.path) / dataset.parquet_relative_path),
-                    "method": payload.method,
+                    "method": payload.method or definition.task_type,
+                    "taskType": definition.task_type,
+                    "algorithmId": algorithm_id,
                     "targetColumn": payload.target_column,
+                    "featureColumns": payload.feature_columns,
+                    "factorColumns": payload.factor_columns,
+                    "timeColumn": payload.time_column,
+                    "groupColumn": payload.group_column,
                     "validationRatio": payload.validation_ratio,
+                    "testRatio": payload.test_ratio,
                     "randomSeed": payload.random_seed,
                     "computeMode": payload.compute_mode,
+                    "parameters": parameters,
                     "resultPath": str(result_path),
                     "artifactDirectory": str(run_directory),
                 },
@@ -65,7 +87,16 @@ class TrainingService:
             encoding="utf-8",
         )
         self.executor.submit(self._run, job.id, config_path, result_path)
-        return TrainingResult(job_id=job.id, method=payload.method, status=JobStatus.QUEUED, target_column=payload.target_column)
+        return TrainingResult(
+            job_id=job.id,
+            method=payload.method or definition.task_type,
+            task_type=definition.task_type,
+            algorithm_id=algorithm_id,
+            status=JobStatus.QUEUED,
+            target_column=payload.target_column,
+            feature_columns=payload.feature_columns,
+            parameters=parameters,
+        )
 
     def get_result(self, job_id: str) -> TrainingResult:
         job = self.store.get_job(job_id)

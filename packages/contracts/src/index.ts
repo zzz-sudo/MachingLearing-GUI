@@ -27,19 +27,42 @@ export type Job = {
 
 export type TrainingCreate = {
   datasetId: string;
-  method: "classification" | "regression" | "anova" | "clustering" | "deep-learning";
+  method?: "classification" | "regression" | "anova" | "clustering" | "deep-learning" | null;
+  taskType?: string | null;
+  algorithmId?: string | null;
   targetColumn?: string | null;
+  featureColumns?: string[];
+  factorColumns?: string[];
+  timeColumn?: string | null;
+  groupColumn?: string | null;
   validationRatio: number;
+  testRatio?: number;
   randomSeed: number;
   computeMode: "auto" | "cpu" | "gpu";
+  parameters?: Record<string, boolean | number | string>;
+};
+
+export type TrainingArtifact = {
+  kind: string;
+  relativePath: string;
+  mediaType: string;
+  description: string;
 };
 
 export type TrainingResult = {
   jobId: string;
   method: string;
+  taskType?: string | null;
+  algorithmId?: string | null;
   status: JobStatus;
   targetColumn?: string | null;
+  featureColumns: string[];
+  parameters: Record<string, boolean | number | string>;
   metrics: Record<string, number>;
+  tables: Record<string, Array<Record<string, unknown>>>;
+  artifacts: TrainingArtifact[];
+  warnings: string[];
+  environment: Record<string, string>;
   artifactRelativePath?: string | null;
   errorType?: string | null;
   errorMessage?: string | null;

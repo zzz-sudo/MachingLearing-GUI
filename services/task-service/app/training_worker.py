@@ -15,6 +15,8 @@ from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_er
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
+from algorithm_runners import SUPERVISED_ALGORITHM_IDS, run_supervised
+
 
 def write_result(path: Path, payload: dict[str, Any]) -> None:
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
@@ -29,6 +31,9 @@ def numeric_matrix(frame: Any, excluded: str | None) -> tuple[np.ndarray, list[s
 
 
 def run(config: dict[str, Any]) -> dict[str, Any]:
+    if config.get("algorithmId") in SUPERVISED_ALGORITHM_IDS:
+        return run_supervised(config)
+
     dataset = parquet.read_table(config["datasetPath"]).to_pandas()
     method = config["method"]
     target = config.get("targetColumn")
@@ -128,7 +133,7 @@ def main() -> None:
     try:
         write_result(result_path, run(config))
     except Exception as error:
-        write_result(result_path, {"jobId": config["jobId"], "method": config["method"], "status": "failed", "targetColumn": config.get("targetColumn"), "errorType": type(error).__name__, "errorMessage": str(error)})
+        write_result(result_path, {"jobId": config["jobId"], "method": config["method"], "taskType": config.get("taskType"), "algorithmId": config.get("algorithmId"), "status": "failed", "targetColumn": config.get("targetColumn"), "featureColumns": config.get("featureColumns", []), "parameters": config.get("parameters", {}), "errorType": type(error).__name__, "errorMessage": str(error)})
         raise
 
 
