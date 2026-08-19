@@ -569,10 +569,15 @@ PDF 导入会自动区分数字 PDF、扫描 PDF 和混合 PDF。数字页使用
 
 二进制案例由 tests/build_pdf_fixtures.py 可重复生成。该脚本只生成测试数据，不写入用户项目目录。完整后端测试覆盖项目持久化、中文文件名、UTF-8、GB18030、XLSX、压缩包安全边界、表格预览恢复、字段确认、递增数据集版本、Parquet 下载、数字 PDF、扫描 PDF 和混合 PDF。
 
+算法专用测试数据位于 `services/task-service/tests/fixtures/algorithms`。这些 CSV 由 `tests/build_algorithm_fixtures.py` 使用固定随机种子生成，采用 UTF-8 without BOM，并在 `fixture_manifest.json` 中记录行数、任务类型、许可证、生成方式和 SHA-256。测试目录包含分类、回归、聚类、单因素方差分析、多因素方差分析以及同时支持序列回归和序列分类的时间序列数据。数据包含中文类别和分组值，用于同时检查算法流程与编码处理。
+
+算法 fixture 是本项目生成的确定性合成测试数据，使用 CC0-1.0。它们用于自动化测试和错误定位，不冒充真实业务数据。重新生成后必须执行清单测试；如果随机逻辑或文件内容发生变化，新的哈希必须与代码变更一起审核。
+
 ```powershell
 Set-Location F:\CodeX\services\task-service
-D:\Python\python11\python.exe tests\build_pdf_fixtures.py
-D:\Python\python11\python.exe -m pytest -q
+F:\CodeX\.runtime\sidecar-venv\Scripts\python.exe tests\build_pdf_fixtures.py
+F:\CodeX\.runtime\sidecar-venv\Scripts\python.exe tests\build_algorithm_fixtures.py
+F:\CodeX\.runtime\sidecar-venv\Scripts\python.exe -m pytest -q
 ```
 
 ## Git 开发规则
