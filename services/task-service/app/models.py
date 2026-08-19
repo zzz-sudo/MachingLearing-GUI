@@ -160,6 +160,43 @@ class DatasetVersion(ApiModel):
     created_at: datetime
 
 
+class AlgorithmParameter(ApiModel):
+    id: str
+    label: str
+    value_type: Literal["integer", "number", "boolean", "select"]
+    default: int | float | bool | str
+    minimum: int | float | None = None
+    maximum: int | float | None = None
+    step: int | float | None = None
+    options: list[str] = Field(default_factory=list)
+    description: str
+
+
+class AlgorithmDefinition(ApiModel):
+    id: str
+    name: str
+    task_type: Literal[
+        "classification",
+        "regression",
+        "clustering",
+        "anova",
+        "sequence_regression",
+        "sequence_classification",
+    ]
+    family: str
+    description: str
+    requires_target: bool = False
+    requires_factors: bool = False
+    requires_time: bool = False
+    supports_gpu: bool = False
+    parameters: list[AlgorithmParameter] = Field(default_factory=list)
+
+
+class AlgorithmCatalog(ApiModel):
+    version: int = 1
+    algorithms: list[AlgorithmDefinition]
+
+
 class TrainingCreate(ApiModel):
     dataset_id: str
     method: Literal["classification", "regression", "anova", "clustering", "deep-learning"]

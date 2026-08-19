@@ -50,6 +50,22 @@ def test_health_endpoint(tmp_path: Path) -> None:
     }
 
 
+def test_algorithm_catalog_exposes_stable_capabilities(tmp_path: Path) -> None:
+    with create_test_client(tmp_path) as client:
+        response = client.get("/api/algorithms")
+
+    assert response.status_code == 200
+    catalog = response.json()
+    algorithms = {item["id"]: item for item in catalog["algorithms"]}
+    assert catalog["version"] == 1
+    assert algorithms["random_forest_classifier"]["taskType"] == "classification"
+    assert algorithms["xgboost_regressor"]["supportsGpu"] is True
+    assert algorithms["factorial_anova"]["requiresFactors"] is True
+    assert algorithms["lstm_regressor"]["requiresTime"] is True
+    parameter_ids = {item["id"] for item in algorithms["lstm_regressor"]["parameters"]}
+    assert {"window_size", "hidden_size", "epochs"} <= parameter_ids
+
+
 def test_create_project_keeps_chinese_metadata(tmp_path: Path) -> None:
     project_path = tmp_path / "销售预测项目"
 

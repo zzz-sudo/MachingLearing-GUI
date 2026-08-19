@@ -1,4 +1,5 @@
 import type {
+  AlgorithmCatalog,
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
@@ -17,6 +18,10 @@ import type {
 const DEFAULT_API_BASE_URL = "http://127.0.0.1:8765/api";
 
 export class LocalWorkspaceClient {
+  getAlgorithmCatalog(): Promise<AlgorithmCatalog> {
+    return this.request<AlgorithmCatalog>("/algorithms");
+  }
+
   constructor(private readonly baseUrl = DEFAULT_API_BASE_URL) {}
 
   async getHealth(): Promise<ServiceHealth> {

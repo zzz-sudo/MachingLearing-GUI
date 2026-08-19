@@ -45,6 +45,44 @@ export type TrainingResult = {
   errorMessage?: string | null;
 };
 
+export type AlgorithmTaskType =
+  | "classification"
+  | "regression"
+  | "clustering"
+  | "anova"
+  | "sequence_regression"
+  | "sequence_classification";
+
+export type AlgorithmParameter = {
+  id: string;
+  label: string;
+  valueType: "integer" | "number" | "boolean" | "select";
+  default: number | boolean | string;
+  minimum?: number | null;
+  maximum?: number | null;
+  step?: number | null;
+  options: string[];
+  description: string;
+};
+
+export type AlgorithmDefinition = {
+  id: string;
+  name: string;
+  taskType: AlgorithmTaskType;
+  family: string;
+  description: string;
+  requiresTarget: boolean;
+  requiresFactors: boolean;
+  requiresTime: boolean;
+  supportsGpu: boolean;
+  parameters: AlgorithmParameter[];
+};
+
+export type AlgorithmCatalog = {
+  version: number;
+  algorithms: AlgorithmDefinition[];
+};
+
 export type ServiceHealth = {
   status: "ready";
   service: string;

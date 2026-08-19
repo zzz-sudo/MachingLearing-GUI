@@ -9,10 +9,12 @@ from fastapi import APIRouter, Header, Query, Request
 from fastapi.responses import FileResponse
 
 from app.datasets import DatasetService
+from app.algorithm_catalog import get_algorithm_catalog
 from app.documents import DocumentExportService
 from app.importer import FileImporter
 from app.models import (
     AssetRecord,
+    AlgorithmCatalog,
     DatasetCreate,
     DatasetVersion,
     DocumentParseResult,
@@ -45,6 +47,11 @@ def get_training_service(request: Request) -> TrainingService:
 @router.get("/health", response_model=ServiceHealth)
 def get_health() -> ServiceHealth:
     return ServiceHealth()
+
+
+@router.get("/algorithms", response_model=AlgorithmCatalog)
+def get_algorithms() -> AlgorithmCatalog:
+    return get_algorithm_catalog()
 
 
 @router.get("/projects", response_model=list[ProjectRecord])

@@ -1,0 +1,142 @@
+from __future__ import annotations
+
+from app.models import AlgorithmCatalog, AlgorithmDefinition, AlgorithmParameter
+
+
+def integer_parameter(
+    parameter_id: str,
+    label: str,
+    default: int,
+    minimum: int,
+    maximum: int,
+    description: str,
+    step: int = 1,
+) -> AlgorithmParameter:
+    return AlgorithmParameter(
+        id=parameter_id,
+        label=label,
+        value_type="integer",
+        default=default,
+        minimum=minimum,
+        maximum=maximum,
+        step=step,
+        description=description,
+    )
+
+
+def number_parameter(
+    parameter_id: str,
+    label: str,
+    default: float,
+    minimum: float,
+    maximum: float,
+    description: str,
+    step: float,
+) -> AlgorithmParameter:
+    return AlgorithmParameter(
+        id=parameter_id,
+        label=label,
+        value_type="number",
+        default=default,
+        minimum=minimum,
+        maximum=maximum,
+        step=step,
+        description=description,
+    )
+
+
+TREE_PARAMETERS = [
+    integer_parameter("n_estimators", "树数量", 200, 10, 2000, "参与集成的决策树数量", 10),
+    integer_parameter("max_depth", "最大深度", 8, 1, 64, "单棵树允许的最大深度"),
+]
+
+XGBOOST_PARAMETERS = [
+    integer_parameter("n_estimators", "迭代轮数", 300, 10, 3000, "梯度提升迭代轮数", 10),
+    integer_parameter("max_depth", "最大深度", 6, 1, 32, "单棵树允许的最大深度"),
+    number_parameter("learning_rate", "学习率", 0.05, 0.001, 1.0, "每轮提升的步长", 0.001),
+    number_parameter("subsample", "样本比例", 0.8, 0.1, 1.0, "每轮使用的训练样本比例", 0.05),
+]
+
+CLUSTER_COUNT = [
+    integer_parameter("n_clusters", "聚类数量", 3, 2, 100, "期望划分的聚类数量"),
+]
+
+DENSITY_PARAMETERS = [
+    number_parameter("eps", "邻域半径", 0.5, 0.01, 20.0, "密度邻域的最大距离", 0.01),
+    integer_parameter("min_samples", "最小样本数", 5, 2, 500, "形成核心点所需的邻域样本数"),
+]
+
+SEQUENCE_PARAMETERS = [
+    integer_parameter("window_size", "窗口长度", 12, 2, 512, "每个训练样本包含的连续时间步数量"),
+    integer_parameter("horizon", "预测步长", 1, 1, 128, "从窗口末端向后预测的时间步距离"),
+    integer_parameter("hidden_size", "隐藏维度", 32, 4, 1024, "循环网络隐藏状态的维度", 4),
+    integer_parameter("num_layers", "网络层数", 1, 1, 8, "循环网络堆叠层数"),
+    integer_parameter("epochs", "训练轮数", 30, 1, 1000, "完整遍历训练集的次数"),
+    integer_parameter("batch_size", "批大小", 32, 1, 4096, "每次参数更新使用的样本数量"),
+    number_parameter("learning_rate", "学习率", 0.001, 0.000001, 1.0, "优化器更新参数的步长", 0.0001),
+]
+
+
+def _definition(
+    algorithm_id: str,
+    name: str,
+    task_type: str,
+    family: str,
+    description: str,
+    *,
+    requires_target: bool = False,
+    requires_factors: bool = False,
+    requires_time: bool = False,
+    supports_gpu: bool = False,
+    parameters: list[AlgorithmParameter] | None = None,
+) -> AlgorithmDefinition:
+    return AlgorithmDefinition(
+        id=algorithm_id,
+        name=name,
+        task_type=task_type,
+        family=family,
+        description=description,
+        requires_target=requires_target,
+        requires_factors=requires_factors,
+        requires_time=requires_time,
+        supports_gpu=supports_gpu,
+        parameters=parameters or [],
+    )
+
+
+# This catalog is the single source of truth shared by validation and the UI.
+ALGORITHMS = [
+    _definition("logistic_regression", "逻辑回归", "classification", "线性模型", "分类任务的可解释基线", requires_target=True),
+    _definition("decision_tree_classifier", "决策树分类", "classification", "树模型", "使用单棵决策树完成分类", requires_target=True, parameters=[TREE_PARAMETERS[1]]),
+    _definition("random_forest_classifier", "随机森林分类", "classification", "集成学习", "通过多棵随机决策树完成稳健分类", requires_target=True, parameters=TREE_PARAMETERS),
+    _definition("extra_trees_classifier", "极端随机树分类", "classification", "集成学习", "通过更强的随机划分降低模型方差", requires_target=True, parameters=TREE_PARAMETERS),
+    _definition("hist_gradient_boosting_classifier", "直方图梯度提升分类", "classification", "集成学习", "适合中大型表格数据的梯度提升分类", requires_target=True),
+    _definition("xgboost_classifier", "XGBoost 分类", "classification", "梯度提升", "支持早停和 GPU 的梯度提升分类", requires_target=True, supports_gpu=True, parameters=XGBOOST_PARAMETERS),
+    _definition("linear_regression", "线性回归", "regression", "线性模型", "连续目标预测的可解释基线", requires_target=True),
+    _definition("ridge_regression", "岭回归", "regression", "线性模型", "使用 L2 正则化的线性回归", requires_target=True, parameters=[number_parameter("alpha", "正则强度", 1.0, 0.000001, 10000.0, "L2 正则化强度", 0.1)]),
+    _definition("random_forest_regressor", "随机森林回归", "regression", "集成学习", "通过多棵随机决策树预测连续目标", requires_target=True, parameters=TREE_PARAMETERS),
+    _definition("extra_trees_regressor", "极端随机树回归", "regression", "集成学习", "通过更强随机性完成连续目标预测", requires_target=True, parameters=TREE_PARAMETERS),
+    _definition("hist_gradient_boosting_regressor", "直方图梯度提升回归", "regression", "集成学习", "适合中大型表格数据的梯度提升回归", requires_target=True),
+    _definition("xgboost_regressor", "XGBoost 回归", "regression", "梯度提升", "支持早停和 GPU 的梯度提升回归", requires_target=True, supports_gpu=True, parameters=XGBOOST_PARAMETERS),
+    _definition("kmeans", "K-Means", "clustering", "质心聚类", "按照样本到质心的距离划分聚类", parameters=CLUSTER_COUNT),
+    _definition("mini_batch_kmeans", "MiniBatch K-Means", "clustering", "质心聚类", "使用小批次处理较大的数据集", parameters=CLUSTER_COUNT),
+    _definition("agglomerative", "层次聚类", "clustering", "层次聚类", "自底向上合并相近的样本簇", parameters=CLUSTER_COUNT),
+    _definition("dbscan", "DBSCAN", "clustering", "密度聚类", "发现任意形状聚类并标识噪声点", parameters=DENSITY_PARAMETERS),
+    _definition("hdbscan", "HDBSCAN", "clustering", "密度聚类", "从不同密度层次提取稳定聚类", parameters=[integer_parameter("min_cluster_size", "最小聚类大小", 5, 2, 1000, "被识别为独立聚类所需的最少样本数")]),
+    _definition("gaussian_mixture", "高斯混合模型", "clustering", "概率聚类", "使用高斯分布混合表示样本群体", parameters=[integer_parameter("n_components", "分量数量", 3, 2, 100, "高斯分布分量数量")]),
+    _definition("birch", "BIRCH", "clustering", "层次聚类", "面向大型数据的增量层次聚类", parameters=CLUSTER_COUNT),
+    _definition("one_way_anova", "单因素方差分析", "anova", "统计分析", "检验一个分类因素对连续因变量的影响", requires_target=True, requires_factors=True),
+    _definition("factorial_anova", "多因素方差分析", "anova", "统计分析", "检验多个分类因素的主效应和交互效应", requires_target=True, requires_factors=True, parameters=[AlgorithmParameter(id="sum_squares_type", label="平方和类型", value_type="select", default="2", options=["1", "2", "3"], description="不平衡设计通常使用 Type II，含完整交互解释时可使用 Type III"), AlgorithmParameter(id="include_interactions", label="包含交互项", value_type="boolean", default=True, description="是否在模型中加入因素之间的交互项")]),
+    _definition("rnn_regressor", "RNN 序列回归", "sequence_regression", "循环神经网络", "使用普通循环单元预测连续序列目标", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
+    _definition("lstm_regressor", "LSTM 序列回归", "sequence_regression", "循环神经网络", "使用长短期记忆单元预测连续序列目标", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
+    _definition("gru_regressor", "GRU 序列回归", "sequence_regression", "循环神经网络", "使用门控循环单元预测连续序列目标", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
+    _definition("rnn_classifier", "RNN 序列分类", "sequence_classification", "循环神经网络", "使用普通循环单元预测序列类别", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
+    _definition("lstm_classifier", "LSTM 序列分类", "sequence_classification", "循环神经网络", "使用长短期记忆单元预测序列类别", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
+    _definition("gru_classifier", "GRU 序列分类", "sequence_classification", "循环神经网络", "使用门控循环单元预测序列类别", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
+]
+
+ALGORITHM_BY_ID = {algorithm.id: algorithm for algorithm in ALGORITHMS}
+
+
+def get_algorithm_catalog() -> AlgorithmCatalog:
+    return AlgorithmCatalog(algorithms=ALGORITHMS)
