@@ -15,7 +15,12 @@ from sklearn.metrics import accuracy_score, mean_absolute_error, mean_squared_er
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import LabelEncoder
 
-from algorithm_runners import SUPERVISED_ALGORITHM_IDS, run_supervised
+from algorithm_runners import (
+    CLUSTERING_ALGORITHM_IDS,
+    SUPERVISED_ALGORITHM_IDS,
+    run_clustering,
+    run_supervised,
+)
 
 
 def write_result(path: Path, payload: dict[str, Any]) -> None:
@@ -33,6 +38,8 @@ def numeric_matrix(frame: Any, excluded: str | None) -> tuple[np.ndarray, list[s
 def run(config: dict[str, Any]) -> dict[str, Any]:
     if config.get("algorithmId") in SUPERVISED_ALGORITHM_IDS:
         return run_supervised(config)
+    if config.get("algorithmId") in CLUSTERING_ALGORITHM_IDS:
+        return run_clustering(config)
 
     dataset = parquet.read_table(config["datasetPath"]).to_pandas()
     method = config["method"]

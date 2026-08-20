@@ -221,6 +221,10 @@ PDF 解析结果可以导出以下格式。
 
 Task Service 的基础环境和训练环境继续分离。`pyproject.toml` 的 `training` extra 声明传统机器学习和统计分析依赖。PyTorch 需要依据目标设备和 CUDA 版本单独安装，不能由普通 PyPI 依赖在所有设备上隐式选择。训练 Worker 默认使用 `D:\Python\python11\python.exe`，也可以通过 `ML_GUI_TRAINING_PYTHON` 指向具备所需算法依赖的 Python 3.11 环境。
 
+聚类 Runner 已经实现 K-Means、MiniBatch K-Means、层次聚类、DBSCAN、HDBSCAN、高斯混合模型和 BIRCH。所有聚类算法共用字段选择、缺失值处理、类别编码和标准化过程，并输出聚类数量、噪声数量、噪声比例以及条件允许时的 Silhouette、Calinski-Harabasz 和 Davies-Bouldin 指标。`clusterSummary` 记录各聚类的样本数和比例，`sampleAssignments` 提供最多 500 条可预览的样本分配。
+
+聚类产物保存预处理器、模型、特征顺序和全部训练标签。K-Means、高斯混合模型等支持对新样本执行预测的算法保留模型自身的 `predict` 能力。层次聚类、DBSCAN 和 HDBSCAN 不具有与训练过程等价的通用新样本预测接口，因此产物通过 `supportsPrediction` 明确标记能力，并保存训练标签供结果恢复，不能在推理界面伪造预测功能。
+
 ### 真实案例数据
 
 开发运行时示例目录使用公开数据，不把大体积第三方文件提交到 Git 仓库。下载和导入完成后，真实资产会出现在当前项目的 `source` 目录，经过字段确认后再创建 Parquet 数据集。

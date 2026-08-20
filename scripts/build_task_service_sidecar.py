@@ -62,6 +62,8 @@ def run() -> None:
         "--add-data",
         f"{SERVICE_ROOT / 'app' / 'algorithm_runners' / 'common.py'}{os.pathsep}app/algorithm_runners",
         "--add-data",
+        f"{SERVICE_ROOT / 'app' / 'algorithm_runners' / 'clustering.py'}{os.pathsep}app/algorithm_runners",
+        "--add-data",
         f"{SERVICE_ROOT / 'app' / 'algorithm_runners' / 'supervised.py'}{os.pathsep}app/algorithm_runners",
         "--exclude-module",
         "httpx",
