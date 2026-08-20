@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { ReactNode } from "react";
+import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type {
+  AlgorithmDefinition,
+  AlgorithmParameter,
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
@@ -74,13 +76,22 @@ const railItems = [
   { id: "tools", label: "工具", icon: Wrench },
 ] as const;
 
-const analysisMethods = [
-  { id: "classification", label: "分类", group: "监督学习", detail: "预测离散类别", icon: Layers3 },
-  { id: "regression", label: "回归", group: "监督学习", detail: "预测连续数值", icon: LineChart },
-  { id: "anova", label: "方差分析", group: "统计分析", detail: "比较组间差异", icon: Sigma },
-  { id: "clustering", label: "聚类", group: "无监督学习", detail: "发现样本分组", icon: Network },
-  { id: "deep-learning", label: "深度学习", group: "神经网络", detail: "配置多层网络", icon: Sparkles },
-] as const;
+const algorithmTaskLabels: Record<AlgorithmDefinition["taskType"], string> = {
+  classification: "表格分类",
+  regression: "表格回归",
+  clustering: "聚类分析",
+  anova: "方差分析",
+  sequence_regression: "序列回归",
+  sequence_classification: "序列分类",
+};
+
+function algorithmIcon(taskType: AlgorithmDefinition["taskType"]) {
+  if (taskType === "classification") return Layers3;
+  if (taskType === "regression") return LineChart;
+  if (taskType === "clustering") return Network;
+  if (taskType === "anova") return Sigma;
+  return Sparkles;
+}
 
 const statusLabels: Record<Job["status"], string> = {
   queued: "排队中",
@@ -98,6 +109,7 @@ export function App() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [trainingResult, setTrainingResult] = useState<TrainingResult | null>(null);
+  const [algorithms, setAlgorithms] = useState<AlgorithmDefinition[]>([]);
   const [prompt, setPrompt] = useState("");
   const [health, setHealth] = useState<ServiceHealth | null>(null);
   const [serviceError, setServiceError] = useState<string | null>(null);
@@ -117,7 +129,7 @@ export function App() {
   const [importError, setImportError] = useState<WorkspaceError | null>(null);
   const [updateCenterOpen, setUpdateCenterOpen] = useState(false);
   const [inspectorVisible, setInspectorVisible] = useState(true);
-  const [selectedAnalysis, setSelectedAnalysis] = useState("regression");
+  const [selectedAnalysis, setSelectedAnalysis] = useState("random_forest_regressor");
   const [modelPlanStatus, setModelPlanStatus] = useState("尚未创建分析计划");
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -133,6 +145,18 @@ export function App() {
         setServiceError(
           error instanceof Error ? error.message : "本地任务服务连接失败",
         );
+      });
+
+    void workspaceClient
+      .getAlgorithmCatalog()
+      .then((catalog) => {
+        setAlgorithms(catalog.algorithms);
+        setSelectedAnalysis((current) => catalog.algorithms.some((item) => item.id === current)
+          ? current
+          : catalog.algorithms[0]?.id ?? current);
+      })
+      .catch((error: unknown) => {
+        setServiceError(error instanceof Error ? error.message : "无法读取算法目录");
       });
 
     void workspaceClient
@@ -385,6 +409,7 @@ export function App() {
             selectedJobId={selectedJobId}
             selectedFilePath={selectedFilePath}
             selectedAnalysis={selectedAnalysis}
+            algorithms={algorithms}
             onImport={() => projectReady && fileInputRef.current?.click()}
             onSelectAnalysis={(analysis) => {
               setSelectedAnalysis(analysis);
@@ -425,6 +450,7 @@ export function App() {
               selectedAsset={selectedAsset}
               selectedFile={selectedProjectFile}
               selectedAnalysis={selectedAnalysis}
+              algorithms={algorithms}
               modelPlanStatus={modelPlanStatus}
               jobs={jobs}
               trainingResult={trainingResult}
@@ -459,6 +485,7 @@ export function App() {
             selectedAsset={selectedAsset}
             selectedFile={selectedProjectFile}
             selectedAnalysis={selectedAnalysis}
+            algorithms={algorithms}
             fieldTypes={fieldTypes}
             onFieldTypeChange={(name, dataType) => setFieldTypes((current) => ({ ...current, [name]: dataType }))}
             onTabChange={setActiveInspector}
@@ -643,6 +670,7 @@ type ContextSidebarProps = {
   selectedJobId: string | null;
   selectedFilePath: string | null;
   selectedAnalysis: string;
+  algorithms: AlgorithmDefinition[];
   onImport: () => void;
   onSelectAnalysis: (analysis: string) => void;
   onSelectFile: (file: ProjectFileNode) => void;
@@ -662,6 +690,7 @@ function ContextSidebar({
   selectedJobId,
   selectedFilePath,
   selectedAnalysis,
+  algorithms,
   onImport,
   onSelectAnalysis,
   onSelectFile,
@@ -723,8 +752,8 @@ function ContextSidebar({
         <section className="sidebar-section sidebar-fill-section">
           <SectionTitle icon={Box} title="分析方法" />
           <div className="analysis-nav-list">
-            {analysisMethods.map((method) => {
-              const Icon = method.icon;
+            {algorithms.map((method) => {
+              const Icon = algorithmIcon(method.taskType);
               return (
                 <button
                   key={method.id}
@@ -734,7 +763,7 @@ function ContextSidebar({
                   onClick={() => onSelectAnalysis(method.id)}
                 >
                   <Icon aria-hidden="true" size={16} />
-                  <span><strong>{method.label}</strong><small>{method.group}</small></span>
+                  <span><strong>{method.name}</strong><small>{algorithmTaskLabels[method.taskType]}</small></span>
                 </button>
               );
             })}
@@ -1050,6 +1079,7 @@ type WorkspaceContentProps = {
   selectedAsset: Asset | null;
   selectedFile: ProjectFileNode | null;
   selectedAnalysis: string;
+  algorithms: AlgorithmDefinition[];
   modelPlanStatus: string;
   trainingResult: TrainingResult | null;
   projectReady: boolean;
@@ -1074,6 +1104,7 @@ function WorkspaceContent({
   selectedAsset,
   selectedFile,
   selectedAnalysis,
+  algorithms,
   modelPlanStatus,
   trainingResult,
   projectReady,
@@ -1105,6 +1136,7 @@ function WorkspaceContent({
       <ModelWorkspace
         dataset={dataset}
         selectedAnalysis={selectedAnalysis}
+        algorithms={algorithms}
         planStatus={modelPlanStatus}
         selectedJob={job}
         trainingResult={trainingResult}
@@ -1562,6 +1594,7 @@ function PdfCanvasPage({ pageNumber, pdf }: { pageNumber: number; pdf: PdfDocume
 function ModelWorkspace({
   dataset,
   selectedAnalysis,
+  algorithms,
   planStatus,
   selectedJob,
   trainingResult,
@@ -1570,6 +1603,7 @@ function ModelWorkspace({
 }: {
   dataset: DatasetVersion | null;
   selectedAnalysis: string;
+  algorithms: AlgorithmDefinition[];
   planStatus: string;
   selectedJob: Job | null;
   trainingResult: TrainingResult | null;
@@ -1577,21 +1611,71 @@ function ModelWorkspace({
   onCreatePlan: (payload: TrainingCreate) => void;
 }) {
   const [targetColumn, setTargetColumn] = useState("");
+  const [featureColumns, setFeatureColumns] = useState<string[]>([]);
+  const [factorColumns, setFactorColumns] = useState<string[]>([]);
+  const [timeColumn, setTimeColumn] = useState("");
+  const [groupColumn, setGroupColumn] = useState("");
+  const [parameters, setParameters] = useState<Record<string, boolean | number | string>>({});
   const [validationRatio, setValidationRatio] = useState(20);
   const [randomSeed, setRandomSeed] = useState(42);
   const [computeMode, setComputeMode] = useState("auto");
   const [activeView, setActiveView] = useState("design");
-  const method = analysisMethods.find((item) => item.id === selectedAnalysis) ?? analysisMethods[0]!;
-  const targetRequired = selectedAnalysis !== "clustering";
+  const method = algorithms.find((item) => item.id === selectedAnalysis) ?? algorithms[0];
+  const targetRequired = method?.requiresTarget ?? false;
+  const featureRequired = method?.taskType !== "anova";
+
+  const columnNames = dataset?.columns.map((column) => column.name) ?? [];
+  const numericColumns = dataset?.columns.filter((column) => isNumericType(column.dataType)).map((column) => column.name) ?? [];
+  const textColumns = dataset?.columns.filter((column) => !isNumericType(column.dataType)).map((column) => column.name) ?? [];
 
   useEffect(() => {
-    if (!dataset) {
+    if (!dataset || !method) {
       setTargetColumn("");
+      setFeatureColumns([]);
+      setFactorColumns([]);
+      setTimeColumn("");
+      setGroupColumn("");
+      setParameters({});
       return;
     }
-    const defaultTarget = dataset.columns.find((column) => ["integer", "number"].includes(column.dataType))?.name ?? dataset.columns[0]?.name ?? "";
-    setTargetColumn((current) => dataset.columns.some((column) => column.name === current) ? current : defaultTarget);
-  }, [dataset]);
+    const namedTarget = dataset.columns.find((column) => /(target|label|class|outcome|目标|标签|结果)/i.test(column.name))?.name;
+    const defaultTarget = namedTarget ?? (method.taskType === "classification" || method.taskType === "sequence_classification"
+      ? (textColumns.at(-1) ?? columnNames.at(-1) ?? "")
+      : (numericColumns.at(-1) ?? columnNames.at(-1) ?? ""));
+    setTargetColumn(defaultTarget);
+    const defaults = method.taskType === "clustering" || method.taskType.startsWith("sequence_")
+      ? numericColumns.filter((name) => name !== defaultTarget)
+      : columnNames.filter((name) => name !== defaultTarget);
+    setFeatureColumns(featureRequired ? defaults : []);
+    setFactorColumns(method.requiresFactors ? textColumns.slice(0, method.id === "factorial_anova" ? 2 : 1) : []);
+    const detectedTime = columnNames.find((name) => /(time|date|timestamp|日期|时间)/i.test(name)) ?? textColumns[0] ?? "";
+    setTimeColumn(method.requiresTime ? detectedTime : "");
+    setGroupColumn(method.requiresTime ? (textColumns.find((name) => name !== detectedTime) ?? "") : "");
+    setParameters(Object.fromEntries(method.parameters.map((parameter) => [parameter.id, parameter.default])));
+    setComputeMode("auto");
+  }, [dataset?.id, selectedAnalysis, method?.id]);
+
+  function toggleColumn(name: string, setter: Dispatch<SetStateAction<string[]>>, limit?: number) {
+    setter((current) => {
+      if (current.includes(name)) return current.filter((item) => item !== name);
+      if (limit && current.length >= limit) return current;
+      return [...current, name];
+    });
+  }
+
+  function updateParameter(parameter: AlgorithmParameter, value: string | boolean) {
+    const nextValue = parameter.valueType === "boolean" ? Boolean(value) : parameter.valueType === "integer" ? Number.parseInt(String(value), 10) : parameter.valueType === "number" ? Number(value) : String(value);
+    setParameters((current) => ({ ...current, [parameter.id]: nextValue }));
+  }
+
+  function updateTargetColumn(name: string) {
+    setTargetColumn(name);
+    setFeatureColumns((current) => current.filter((column) => column !== name));
+    setFactorColumns((current) => current.filter((column) => column !== name));
+  }
+
+  const factorsValid = !method?.requiresFactors || (method.id === "one_way_anova" ? factorColumns.length === 1 : factorColumns.length >= 2);
+  const canSubmit = Boolean(dataset && method && (!targetRequired || targetColumn) && (!featureRequired || featureColumns.length > 0) && factorsValid && (!method?.requiresTime || timeColumn));
 
   return (
     <div className="workspace-scroll model-workspace">
@@ -1608,19 +1692,19 @@ function ModelWorkspace({
       {activeView === "design" ? (
         <>
           <section className="model-intro-band">
-            <div><span className="section-kicker">分析任务</span><h2>{method.label}</h2><p>{method.detail}。先选择方法，再确认数据、字段和验证方式。</p></div>
+            <div><span className="section-kicker">分析任务</span><h2>{method?.name ?? "读取算法目录"}</h2><p>{method?.description ?? "本地服务尚未返回算法目录。"}。先选择方法，再确认数据、字段和验证方式。</p></div>
             <div><span>可用数据集</span><strong>{dataset ? 1 : 0}</strong></div>
           </section>
 
           <section className="analysis-method-section">
             <div className="section-heading"><div><span className="section-kicker">方法选择</span><h2>选择分析目标</h2></div></div>
             <div className="analysis-method-grid">
-              {analysisMethods.map((item) => {
-                const Icon = item.icon;
+              {algorithms.map((item) => {
+                const Icon = algorithmIcon(item.taskType);
                 return (
                   <button key={item.id} data-active={selectedAnalysis === item.id} type="button" onClick={() => onSelectAnalysis(item.id)}>
                     <Icon aria-hidden="true" size={19} />
-                    <span><strong>{item.label}</strong><small>{item.group}</small><p>{item.detail}</p></span>
+                    <span><strong>{item.name}</strong><small>{algorithmTaskLabels[item.taskType]}</small><p>{item.description}</p></span>
                   </button>
                 );
               })}
@@ -1632,20 +1716,26 @@ function ModelWorkspace({
             <div className="model-config-grid">
               <div className="config-column">
                 <label><span>数据集</span><select value={dataset?.id ?? ""} disabled><option value="">请先创建数据集版本</option>{dataset ? <option value={dataset.id}>数据集 v{dataset.version}</option> : null}</select></label>
-                <label><span>{targetRequired ? "目标字段" : "分组字段"}</span><select value={targetColumn} disabled={!dataset || !targetRequired} onChange={(event) => setTargetColumn(event.target.value)}><option value="">请选择字段</option>{dataset?.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
-                <label><span>验证集比例</span><div className="range-control"><input type="range" min="10" max="40" step="5" value={validationRatio} onChange={(event) => setValidationRatio(Number(event.target.value))} /><output>{validationRatio}%</output></div></label>
+                {targetRequired ? <label><span>目标字段</span><select value={targetColumn} disabled={!dataset} onChange={(event) => updateTargetColumn(event.target.value)}><option value="">请选择字段</option>{dataset?.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label> : null}
+                {method?.requiresTime ? <><label><span>时间字段</span><select value={timeColumn} disabled={!dataset} onChange={(event) => setTimeColumn(event.target.value)}><option value="">请选择字段</option>{dataset?.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label><label><span>分组字段</span><select value={groupColumn} disabled={!dataset} onChange={(event) => setGroupColumn(event.target.value)}><option value="">不分组</option>{dataset?.columns.filter((column) => column.name !== timeColumn).map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label></> : null}
+                <label><span>{method?.taskType === "sequence_regression" || method?.taskType === "sequence_classification" ? "测试区间比例" : "验证集比例"}</span><div className="range-control"><input type="range" min="10" max="40" step="5" value={validationRatio} onChange={(event) => setValidationRatio(Number(event.target.value))} /><output>{validationRatio}%</output></div></label>
                 <label><span>随机种子</span><input type="number" value={randomSeed} onChange={(event) => setRandomSeed(Number(event.target.value))} /></label>
+                {featureRequired ? <fieldset className="field-selection"><legend>特征字段</legend><div className="field-selection-list">{dataset?.columns.filter((column) => column.name !== targetColumn).map((column) => <label key={column.name}><input type="checkbox" checked={featureColumns.includes(column.name)} onChange={() => toggleColumn(column.name, setFeatureColumns)} /><span>{column.name}</span></label>)}</div></fieldset> : null}
+                {method?.requiresFactors ? <fieldset className="field-selection"><legend>{method.id === "one_way_anova" ? "因素字段" : "因素字段（至少两个）"}</legend><div className="field-selection-list">{dataset?.columns.filter((column) => column.name !== targetColumn).map((column) => <label key={column.name}><input type="checkbox" checked={factorColumns.includes(column.name)} onChange={() => toggleColumn(column.name, setFactorColumns, method.id === "one_way_anova" ? 1 : undefined)} /><span>{column.name}</span></label>)}</div></fieldset> : null}
               </div>
               <div className="config-column">
                 <span className="config-label">计算模式</span>
                 <div className="compute-segmented">
                   {[{ id: "auto", label: "自动" }, { id: "cpu", label: "CPU" }, { id: "gpu", label: "GPU" }].map((mode) => (
-                    <button key={mode.id} data-active={computeMode === mode.id} type="button" onClick={() => setComputeMode(mode.id)}>{mode.label}</button>
+                    <button key={mode.id} disabled={mode.id === "gpu" && !method?.supportsGpu} data-active={computeMode === mode.id} type="button" onClick={() => setComputeMode(mode.id)}>{mode.label}</button>
                   ))}
                 </div>
+                <div className="parameter-grid">{method?.parameters.map((parameter) => <label key={parameter.id} className={parameter.valueType === "boolean" ? "parameter-toggle" : ""}><span>{parameter.label}</span>{parameter.valueType === "select" ? <select value={String(parameters[parameter.id] ?? parameter.default)} onChange={(event) => updateParameter(parameter, event.target.value)}>{parameter.options.map((option) => <option key={option} value={option}>{option}</option>)}</select> : parameter.valueType === "boolean" ? <input type="checkbox" checked={Boolean(parameters[parameter.id])} onChange={(event) => updateParameter(parameter, event.target.checked)} /> : <input type="number" min={parameter.minimum ?? undefined} max={parameter.maximum ?? undefined} step={parameter.step ?? undefined} value={Number(parameters[parameter.id] ?? parameter.default)} onChange={(event) => updateParameter(parameter, event.target.value)} />}</label>)}</div>
                 <div className="plan-summary">
-                  <PropertyRow label="分析方法" value={method.label} />
+                  <PropertyRow label="分析方法" value={method?.name ?? "未选择"} />
                   <PropertyRow label={targetRequired ? "目标字段" : "无监督任务"} value={targetRequired ? targetColumn || "未选择" : "不需要目标字段"} />
+                  <PropertyRow label="特征字段" value={featureRequired ? `${featureColumns.length} 个` : "不适用"} />
+                  {method?.requiresFactors ? <PropertyRow label="因素字段" value={`${factorColumns.length} 个`} /> : null}
                   <PropertyRow label="验证比例" value={`${validationRatio}%`} />
                   <PropertyRow label="计算位置" value={computeMode.toUpperCase()} />
                   <PropertyRow label="随机种子" value={String(randomSeed)} />
@@ -1654,11 +1744,11 @@ function ModelWorkspace({
             </div>
             <div className="model-plan-footer">
               <span>{planStatus}</span>
-              <button className="primary-button" disabled={!dataset || (targetRequired && !targetColumn)} type="button" onClick={() => {
-                if (!dataset) {
+              <button className="primary-button" disabled={!canSubmit} type="button" onClick={() => {
+                if (!dataset || !method) {
                   return;
                 }
-                onCreatePlan({ datasetId: dataset.id, method: selectedAnalysis as TrainingCreate["method"], targetColumn: targetRequired ? targetColumn : null, validationRatio, randomSeed, computeMode: computeMode as TrainingCreate["computeMode"] });
+                onCreatePlan({ datasetId: dataset.id, taskType: method.taskType, algorithmId: method.id, targetColumn: targetRequired ? targetColumn : null, featureColumns, factorColumns, timeColumn: method.requiresTime ? timeColumn : null, groupColumn: method.requiresTime ? groupColumn || null : null, validationRatio, testRatio: validationRatio, randomSeed, computeMode: computeMode as TrainingCreate["computeMode"], parameters });
                 setActiveView("monitor");
               }}><Play aria-hidden="true" size={15} />启动本地训练</button>
             </div>
@@ -1667,8 +1757,34 @@ function ModelWorkspace({
       ) : activeView === "monitor" ? (
         <section className="workspace-state-view"><BarChart3 aria-hidden="true" size={30} /><h2>{selectedJob ? selectedJob.title : "训练监控"}</h2><p>{selectedJob ? `${statusLabels[selectedJob.status]}，进度 ${selectedJob.progress}%。${selectedJob.message ?? ""}` : "创建数据集并启动训练后，这里显示 Worker 的真实状态。"}</p></section>
       ) : (
-        <section className="workspace-state-view"><LineChart aria-hidden="true" size={30} /><h2>评估结果</h2>{trainingResult?.status === "succeeded" ? <div className="training-metrics">{Object.entries(trainingResult.metrics).map(([name, value]) => <span key={name}>{name}: {value.toFixed(4)}</span>)}</div> : <p>{trainingResult?.errorMessage ?? "任务完成后，这里显示真实指标和模型产物路径。"}</p>}</section>
+        <TrainingEvaluation result={trainingResult} />
       )}
+    </div>
+  );
+}
+
+function TrainingEvaluation({ result }: { result: TrainingResult | null }) {
+  if (!result || result.status !== "succeeded") {
+    return <section className="workspace-state-view"><LineChart aria-hidden="true" size={30} /><h2>评估结果</h2><p>{result?.errorMessage ?? "任务完成后，这里显示真实指标、统计表和模型产物路径。"}</p></section>;
+  }
+  return (
+    <section className="training-evaluation">
+      <div className="section-heading"><div><span className="section-kicker">可追溯结果</span><h2>评估结果</h2></div><span>{result.algorithmId ?? result.method}</span></div>
+      <div className="training-metrics">{Object.entries(result.metrics).map(([name, value]) => <span key={name}><small>{name}</small><strong>{value.toFixed(4)}</strong></span>)}</div>
+      {Object.entries(result.tables).map(([tableName, rows]) => <ResultTable key={tableName} name={tableName} rows={rows} />)}
+      {result.artifacts.length > 0 ? <div className="result-artifacts"><h3>输出产物</h3>{result.artifacts.map((artifact) => <div key={artifact.relativePath}><strong>{artifact.description}</strong><code>{artifact.relativePath}</code><span>{artifact.mediaType}</span></div>)}</div> : null}
+      {result.warnings.length > 0 ? <div className="result-warnings"><h3>运行提示</h3>{result.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
+    </section>
+  );
+}
+
+function ResultTable({ name, rows }: { name: string; rows: Array<Record<string, unknown>> }) {
+  const columns = Array.from(new Set(rows.slice(0, 8).flatMap((row) => Object.keys(row))));
+  return (
+    <div className="result-table-section">
+      <h3>{name}</h3>
+      {rows.length === 0 ? <p>没有结果记录</p> : <div className="table-shell"><table><thead><tr>{columns.map((column) => <th key={column}>{column}</th>)}</tr></thead><tbody>{rows.slice(0, 8).map((row, index) => <tr key={`${name}-${index}`}>{columns.map((column) => <td key={column}>{formatCell(row[column])}</td>)}</tr>)}</tbody></table></div>}
+      {rows.length > 8 ? <small>显示前 8 条，共 {rows.length} 条</small> : null}
     </div>
   );
 }
@@ -1871,6 +1987,7 @@ type InspectorPanelProps = {
   selectedAsset: Asset | null;
   selectedFile: ProjectFileNode | null;
   selectedAnalysis: string;
+  algorithms: AlgorithmDefinition[];
   fieldTypes: Record<string, DatasetColumnSpec["dataType"]>;
   onFieldTypeChange: (name: string, dataType: DatasetColumnSpec["dataType"]) => void;
   onTabChange: (tab: string) => void;
@@ -1887,6 +2004,7 @@ function InspectorPanel({
   selectedAsset,
   selectedFile,
   selectedAnalysis,
+  algorithms,
   fieldTypes,
   onFieldTypeChange,
   onTabChange,
@@ -1932,13 +2050,13 @@ function InspectorPanel({
             <InspectorSection title="当前会话变更">
               <InspectorNotice icon={Import} title="文件树已同步" detail="目录、隐藏项和资产关系" />
               <InspectorNotice icon={FileText} title="预览状态已更新" detail={selectedFile?.name ?? selectedAsset?.name ?? "等待选择文件"} />
-              <InspectorNotice icon={Box} title="分析配置" detail={analysisMethods.find((item) => item.id === selectedAnalysis)?.label ?? "尚未选择"} />
+              <InspectorNotice icon={Box} title="分析配置" detail={algorithms.find((item) => item.id === selectedAnalysis)?.name ?? "尚未选择"} />
             </InspectorSection>
           </>
         ) : (
         <>
         {activeRail === "models" ? <InspectorSection title="分析配置">
-          <PropertyRow label="方法" value={analysisMethods.find((item) => item.id === selectedAnalysis)?.label ?? "回归"} />
+          <PropertyRow label="方法" value={algorithms.find((item) => item.id === selectedAnalysis)?.name ?? "回归"} />
           <PropertyRow label="运行位置" value="本地 Worker" />
           <PropertyRow label="配置状态" value="草稿" />
         </InspectorSection> : null}

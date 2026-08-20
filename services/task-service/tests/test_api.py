@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import json
+import time
 import zipfile
 from pathlib import Path
 from urllib.parse import quote
@@ -38,6 +39,41 @@ def import_file(
     )
 
 
+def create_dataset_from_csv(
+    client: TestClient,
+    project_id: str,
+    fixture: Path,
+    columns: list[dict[str, str]],
+) -> dict[str, object]:
+    imported = import_file(client, project_id, fixture.name, fixture.read_bytes())
+    assert imported.status_code == 201
+    asset_id = imported.json()["preview"]["assetId"]
+    response = client.post(
+        f"/api/projects/{project_id}/datasets",
+        json={"assetId": asset_id, "columns": columns},
+    )
+    assert response.status_code == 201
+    return response.json()
+
+
+def wait_for_training(
+    client: TestClient,
+    project_id: str,
+    job_id: str,
+    timeout_seconds: float = 120.0,
+) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        jobs = client.get("/api/jobs", params={"projectId": project_id}).json()
+        job = next(item for item in jobs if item["id"] == job_id)
+        if job["status"] in {"succeeded", "failed", "cancelled"}:
+            result = client.get(f"/api/jobs/{job_id}/training-result")
+            assert result.status_code == 200
+            return result.json()
+        time.sleep(0.25)
+    raise AssertionError(f"训练任务超时: {job_id}")
+
+
 def test_health_endpoint(tmp_path: Path) -> None:
     with create_test_client(tmp_path) as client:
         response = client.get("/api/health")
@@ -48,6 +84,134 @@ def test_health_endpoint(tmp_path: Path) -> None:
         "service": "ml-gui-task-service",
         "version": "0.1.0",
     }
+
+
+def test_training_api_dispatches_multiple_algorithm_runners(tmp_path: Path) -> None:
+    project_path = tmp_path / "algorithm-api-project"
+    classification_fixture = Path(__file__).parent / "fixtures" / "algorithms" / "classification_fixture.csv"
+    clustering_fixture = Path(__file__).parent / "fixtures" / "algorithms" / "clustering_fixture.csv"
+    anova_fixture = Path(__file__).parent / "fixtures" / "algorithms" / "anova_multi_factor.csv"
+    sequence_fixture = Path(__file__).parent / "fixtures" / "algorithms" / "sequence_fixture.csv"
+    classification_columns = [
+        {"name": "feature_x", "dataType": "number"},
+        {"name": "feature_y", "dataType": "number"},
+        {"name": "feature_sum", "dataType": "number"},
+        {"name": "channel", "dataType": "text"},
+        {"name": "target_class", "dataType": "text"},
+    ]
+    clustering_columns = [
+        {"name": "feature_x", "dataType": "number"},
+        {"name": "feature_y", "dataType": "number"},
+        {"name": "radius", "dataType": "number"},
+        {"name": "expected_cluster", "dataType": "integer"},
+    ]
+    anova_columns = [
+        {"name": "treatment", "dataType": "text"},
+        {"name": "region", "dataType": "text"},
+        {"name": "replicate", "dataType": "integer"},
+        {"name": "score", "dataType": "number"},
+    ]
+    sequence_columns = [
+        {"name": "timestamp", "dataType": "text"},
+        {"name": "series_id", "dataType": "text"},
+        {"name": "signal", "dataType": "number"},
+        {"name": "temperature", "dataType": "number"},
+        {"name": "target_value", "dataType": "number"},
+        {"name": "target_class", "dataType": "text"},
+    ]
+
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        classification = create_dataset_from_csv(client, project["id"], classification_fixture, classification_columns)
+        classification_task = client.post(
+            f"/api/projects/{project['id']}/training",
+            json={
+                "datasetId": classification["id"],
+                "algorithmId": "random_forest_classifier",
+                "taskType": "classification",
+                "targetColumn": "target_class",
+                "featureColumns": ["feature_x", "feature_y", "feature_sum", "channel"],
+                "computeMode": "cpu",
+                "parameters": {"n_estimators": 20, "max_depth": 8},
+            },
+        )
+        assert classification_task.status_code == 202
+        classification_result = wait_for_training(client, project["id"], classification_task.json()["jobId"])
+
+        xgboost_task = client.post(
+            f"/api/projects/{project['id']}/training",
+            json={
+                "datasetId": classification["id"],
+                "algorithmId": "xgboost_classifier",
+                "taskType": "classification",
+                "targetColumn": "target_class",
+                "featureColumns": ["feature_x", "feature_y", "feature_sum"],
+                "computeMode": "cpu",
+                "parameters": {"n_estimators": 25, "max_depth": 4, "learning_rate": 0.1, "subsample": 0.9},
+            },
+        )
+        assert xgboost_task.status_code == 202
+        xgboost_result = wait_for_training(client, project["id"], xgboost_task.json()["jobId"])
+
+        clustering = create_dataset_from_csv(client, project["id"], clustering_fixture, clustering_columns)
+        clustering_task = client.post(
+            f"/api/projects/{project['id']}/training",
+            json={
+                "datasetId": clustering["id"],
+                "algorithmId": "kmeans",
+                "taskType": "clustering",
+                "featureColumns": ["feature_x", "feature_y"],
+                "computeMode": "cpu",
+                "parameters": {"n_clusters": 3},
+            },
+        )
+        assert clustering_task.status_code == 202
+        clustering_result = wait_for_training(client, project["id"], clustering_task.json()["jobId"])
+
+        anova = create_dataset_from_csv(client, project["id"], anova_fixture, anova_columns)
+        anova_task = client.post(
+            f"/api/projects/{project['id']}/training",
+            json={
+                "datasetId": anova["id"],
+                "algorithmId": "factorial_anova",
+                "taskType": "anova",
+                "targetColumn": "score",
+                "factorColumns": ["treatment", "region"],
+                "computeMode": "cpu",
+                "parameters": {"sum_squares_type": "2", "include_interactions": True},
+            },
+        )
+        assert anova_task.status_code == 202
+        anova_result = wait_for_training(client, project["id"], anova_task.json()["jobId"])
+
+        sequence = create_dataset_from_csv(client, project["id"], sequence_fixture, sequence_columns)
+        sequence_task = client.post(
+            f"/api/projects/{project['id']}/training",
+            json={
+                "datasetId": sequence["id"],
+                "algorithmId": "lstm_regressor",
+                "taskType": "sequence_regression",
+                "targetColumn": "target_value",
+                "featureColumns": ["signal", "temperature"],
+                "timeColumn": "timestamp",
+                "groupColumn": "series_id",
+                "computeMode": "cpu",
+                "parameters": {"window_size": 12, "horizon": 1, "hidden_size": 8, "num_layers": 1, "epochs": 2, "batch_size": 32, "learning_rate": 0.01},
+            },
+        )
+        assert sequence_task.status_code == 202
+        sequence_result = wait_for_training(client, project["id"], sequence_task.json()["jobId"])
+
+    assert classification_result["status"] == "succeeded"
+    assert classification_result["algorithmId"] == "random_forest_classifier"
+    assert xgboost_result["status"] == "succeeded"
+    assert xgboost_result["algorithmId"] == "xgboost_classifier"
+    assert clustering_result["status"] == "succeeded"
+    assert clustering_result["algorithmId"] == "kmeans"
+    assert anova_result["status"] == "succeeded"
+    assert anova_result["algorithmId"] == "factorial_anova"
+    assert sequence_result["status"] == "succeeded"
+    assert sequence_result["algorithmId"] == "lstm_regressor"
 
 
 def test_algorithm_catalog_exposes_stable_capabilities(tmp_path: Path) -> None:
