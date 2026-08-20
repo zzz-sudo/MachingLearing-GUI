@@ -225,6 +225,10 @@ Task Service 的基础环境和训练环境继续分离。`pyproject.toml` 的 `
 
 聚类产物保存预处理器、模型、特征顺序和全部训练标签。K-Means、高斯混合模型等支持对新样本执行预测的算法保留模型自身的 `predict` 能力。层次聚类、DBSCAN 和 HDBSCAN 不具有与训练过程等价的通用新样本预测接口，因此产物通过 `supportsPrediction` 明确标记能力，并保存训练标签供结果恢复，不能在推理界面伪造预测功能。
 
+统计 Runner 已经实现单因素方差分析和多因素方差分析。单因素任务需要一个连续目标字段和一个因素字段，多因素任务需要至少两个因素字段，并可选择是否加入交互项和使用 Type I、Type II 或 Type III 平方和。Runner 使用 statsmodels 公式模型，将含中文或特殊字符的字段映射到安全的内部名称后再拟合，结果中恢复原始字段名称。
+
+ANOVA 结果表包含 term、自由度、平方和、F 值、P 值、eta squared 和 partial eta squared。结果另外包括基于中位数的 Levene 方差齐性检验、样本量允许时的 Shapiro 正态性检验以及单因素任务的 Tukey HSD 事后比较。`anova.json` 保存完整报告，`model.joblib` 保存公式模型和字段关系，便于刷新后恢复和后续报告导出。P 值不是单独的结论，界面必须同时展示样本量、效应量和假设检验提示。
+
 ### 真实案例数据
 
 开发运行时示例目录使用公开数据，不把大体积第三方文件提交到 Git 仓库。下载和导入完成后，真实资产会出现在当前项目的 `source` 目录，经过字段确认后再创建 Parquet 数据集。
@@ -588,7 +592,10 @@ Set-Location F:\CodeX\services\task-service
 F:\CodeX\.runtime\sidecar-venv\Scripts\python.exe tests\build_pdf_fixtures.py
 F:\CodeX\.runtime\sidecar-venv\Scripts\python.exe tests\build_algorithm_fixtures.py
 F:\CodeX\.runtime\sidecar-venv\Scripts\python.exe -m pytest -q
+D:\Python\python11\python.exe -m pytest -q tests\test_supervised_algorithms.py tests\test_clustering_algorithms.py tests\test_anova_algorithms.py
 ```
+
+Task Service 的 API 和导入测试使用 `.runtime\sidecar-venv`，因为它包含 FastAPI、文档解析和 OCR 依赖。算法 Runner 测试使用 `D:\Python\python11`，因为该环境包含 scikit-learn、XGBoost、statsmodels、SciPy、pandas、PyArrow 和 joblib。算法测试文件在缺少训练依赖的环境中会被 pytest 自动跳过，不会伪装成通过；发布前必须在训练环境中执行第二条测试命令并确认全部算法测试通过。
 
 ## Git 开发规则
 

@@ -5,10 +5,15 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
+pytest.importorskip("joblib")
+pytest.importorskip("sklearn")
+pytest.importorskip("xgboost")
+
 import joblib
 import numpy as np
 import pandas as pd
-import pytest
 
 from app.algorithm_catalog import normalize_parameters
 from app.algorithm_runners.supervised import run_supervised

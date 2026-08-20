@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+pytest.importorskip("joblib")
+pytest.importorskip("sklearn")
+
 import joblib
 import numpy as np
 import pandas as pd
-import pytest
 from sklearn.metrics import adjusted_rand_score
 
 from app.algorithm_catalog import normalize_parameters

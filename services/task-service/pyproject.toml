@@ -38,3 +38,6 @@ training = [
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+markers = [
+  "training: requires the external machine learning training environment"
+]

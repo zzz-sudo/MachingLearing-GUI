@@ -17,8 +17,10 @@ from sklearn.preprocessing import LabelEncoder
 
 from algorithm_runners import (
     CLUSTERING_ALGORITHM_IDS,
+    ANOVA_ALGORITHM_IDS,
     SUPERVISED_ALGORITHM_IDS,
     run_clustering,
+    run_anova,
     run_supervised,
 )
 
@@ -40,6 +42,8 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         return run_supervised(config)
     if config.get("algorithmId") in CLUSTERING_ALGORITHM_IDS:
         return run_clustering(config)
+    if config.get("algorithmId") in ANOVA_ALGORITHM_IDS:
+        return run_anova(config)
 
     dataset = parquet.read_table(config["datasetPath"]).to_pandas()
     method = config["method"]
