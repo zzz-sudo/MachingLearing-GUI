@@ -8,7 +8,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from app.algorithm_catalog import ALGORITHM_BY_ID, normalize_parameters, resolve_algorithm_id
-from app.errors import training_error
+from app.errors import WorkspaceServiceError, algorithm_unavailable_error, training_error
 from app.models import JobCreate, JobStatus, JobUpdate, TrainingCreate, TrainingResult
 from app.storage import WorkspaceStore
 
@@ -27,7 +27,11 @@ class TrainingService:
         try:
             algorithm_id = resolve_algorithm_id(payload.algorithm_id, payload.method)
             definition = ALGORITHM_BY_ID[algorithm_id]
+            if definition.status not in {"available", "experimental"}:
+                raise algorithm_unavailable_error(algorithm_id, definition.status)
             parameters = normalize_parameters(algorithm_id, payload.parameters)
+        except WorkspaceServiceError:
+            raise
         except ValueError as error:
             raise training_error(str(error), "training_create", algorithmId=payload.algorithm_id) from error
         if payload.task_type and payload.task_type != definition.task_type:

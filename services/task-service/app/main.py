@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
+import os
 from pathlib import Path
 from typing import AsyncIterator
 
@@ -20,7 +21,10 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
-        store = WorkspaceStore(resolved_data_dir)
+        configured_project = Path(os.environ["ML_GUI_DEFAULT_PROJECT_DIR"]).expanduser().resolve() if os.environ.get("ML_GUI_DEFAULT_PROJECT_DIR") else None
+        repository_project = Path(__file__).resolve().parents[3] / "workspace" / "default"
+        default_project = configured_project or (repository_project if data_dir is None and repository_project.exists() else None)
+        store = WorkspaceStore(resolved_data_dir, default_project_dir=default_project)
         store.initialize()
         application.state.workspace_store = store
         application.state.training_service = TrainingService(store)

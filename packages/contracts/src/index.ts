@@ -73,6 +73,9 @@ export type AlgorithmTaskType =
   | "regression"
   | "clustering"
   | "anova"
+  | "hypothesis_test"
+  | "exploration"
+  | "dimensionality_reduction"
   | "sequence_regression"
   | "sequence_classification";
 
@@ -88,6 +91,8 @@ export type AlgorithmParameter = {
   description: string;
 };
 
+export type AlgorithmStatus = "available" | "planned" | "experimental" | "disabled";
+
 export type AlgorithmDefinition = {
   id: string;
   name: string;
@@ -98,12 +103,60 @@ export type AlgorithmDefinition = {
   requiresFactors: boolean;
   requiresTime: boolean;
   supportsGpu: boolean;
+  status: AlgorithmStatus;
+  dependencies: string[];
+  chartTemplates: string[];
   parameters: AlgorithmParameter[];
 };
 
 export type AlgorithmCatalog = {
   version: number;
   algorithms: AlgorithmDefinition[];
+};
+
+export type ChartType =
+  | "line"
+  | "bar"
+  | "scatter"
+  | "histogram"
+  | "boxplot"
+  | "heatmap"
+  | "confusion_matrix"
+  | "feature_importance"
+  | "residual"
+  | "cluster_scatter"
+  | "anova_effect";
+
+export type ChartSpec = {
+  id: string;
+  projectId: string;
+  name: string;
+  chartType: ChartType;
+  datasetId: string;
+  modelRunId?: string | null;
+  xColumn?: string | null;
+  yColumns: string[];
+  groupColumn?: string | null;
+  colorColumn?: string | null;
+  filters: Record<string, string | number | boolean | string[]>;
+  options: Record<string, string | number | boolean>;
+  status: "draft" | "ready" | "failed";
+  artifactIds: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type ChartSpecCreate = {
+  name: string;
+  chartType: ChartType;
+  datasetId: string;
+  modelRunId?: string | null;
+  xColumn?: string | null;
+  yColumns?: string[];
+  groupColumn?: string | null;
+  colorColumn?: string | null;
+  filters?: Record<string, string | number | boolean | string[]>;
+  options?: Record<string, string | number | boolean>;
 };
 
 export type ServiceHealth = {

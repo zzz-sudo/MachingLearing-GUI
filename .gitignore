@@ -19,3 +19,17 @@ coverage/
 /services/task-service/data/
 /services/task-service/build/
 /services/task-service/*.egg-info/
+/workspace/default/datasets/*
+!/workspace/default/datasets/.gitkeep
+/workspace/default/models/*
+!/workspace/default/models/.gitkeep
+/workspace/default/predictions/*
+!/workspace/default/predictions/.gitkeep
+/workspace/default/reports/*
+!/workspace/default/reports/.gitkeep
+/workspace/default/logs/*
+!/workspace/default/logs/.gitkeep
+/workspace/default/temp/*
+!/workspace/default/temp/.gitkeep
+/workspace/default/charts/*
+!/workspace/default/charts/.gitkeep

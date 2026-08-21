@@ -74,6 +74,18 @@ def wait_for_training(
     raise AssertionError(f"训练任务超时: {job_id}")
 
 
+def test_default_project_uses_repository_workspace(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.delenv("ML_GUI_DEFAULT_PROJECT_DIR", raising=False)
+    monkeypatch.setenv("ML_GUI_DATA_DIR", str(tmp_path / "service-data"))
+    expected = Path(__file__).resolve().parents[3] / "workspace" / "default"
+    with TestClient(create_app()) as client:
+        response = client.post("/api/projects/default")
+
+    assert response.status_code == 200
+    assert Path(response.json()["path"]).resolve() == expected.resolve()
+    assert (expected / "source").is_dir()
+
+
 def test_health_endpoint(tmp_path: Path) -> None:
     with create_test_client(tmp_path) as client:
         response = client.get("/api/health")
@@ -226,8 +238,61 @@ def test_algorithm_catalog_exposes_stable_capabilities(tmp_path: Path) -> None:
     assert algorithms["xgboost_regressor"]["supportsGpu"] is True
     assert algorithms["factorial_anova"]["requiresFactors"] is True
     assert algorithms["lstm_regressor"]["requiresTime"] is True
+    assert all("status" in item and "chartTemplates" in item for item in catalog["algorithms"])
+    assert any(item["status"] == "planned" for item in catalog["algorithms"])
     parameter_ids = {item["id"] for item in algorithms["lstm_regressor"]["parameters"]}
     assert {"window_size", "hidden_size", "epochs"} <= parameter_ids
+
+
+def test_chart_specs_persist_dataset_source_and_restore(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "algorithms" / "regression_fixture.csv"
+    project_path = tmp_path / "chart-project"
+
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        dataset = create_dataset_from_csv(
+            client,
+            project["id"],
+            fixture,
+            [
+                {"name": "feature_x", "dataType": "number"},
+                {"name": "feature_y", "dataType": "number"},
+                {"name": "region", "dataType": "text"},
+                {"name": "target_value", "dataType": "number"},
+            ],
+        )
+        created = client.post(
+            f"/api/projects/{project['id']}/charts",
+            json={
+                "name": "目标预测散点图",
+                "chartType": "scatter",
+                "datasetId": dataset["id"],
+                "xColumn": "target_value",
+                "yColumns": ["feature_x"],
+                "filters": {"region": ["east", "west"]},
+                "options": {"theme": "light", "showLegend": True},
+            },
+        )
+        invalid = client.post(
+            f"/api/projects/{project['id']}/charts",
+            json={
+                "name": "错误字段",
+                "chartType": "scatter",
+                "datasetId": dataset["id"],
+                "xColumn": "missing_column",
+                "yColumns": ["feature_x"],
+            },
+        )
+        listed = client.get(f"/api/projects/{project['id']}/charts")
+        restored = client.get(f"/api/charts/{created.json()['id']}")
+
+    assert created.status_code == 201
+    assert invalid.status_code == 400
+    assert invalid.json()["errorType"] == "ChartSpecError"
+    assert listed.status_code == 200
+    assert restored.status_code == 200
+    assert restored.json()["datasetId"] == dataset["id"]
+    assert restored.json()["filters"]["region"] == ["east", "west"]
 
 
 def test_create_project_keeps_chinese_metadata(tmp_path: Path) -> None:

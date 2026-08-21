@@ -172,6 +172,9 @@ class AlgorithmParameter(ApiModel):
     description: str
 
 
+AlgorithmStatus = Literal["available", "planned", "experimental", "disabled"]
+
+
 class AlgorithmDefinition(ApiModel):
     id: str
     name: str
@@ -180,6 +183,9 @@ class AlgorithmDefinition(ApiModel):
         "regression",
         "clustering",
         "anova",
+        "hypothesis_test",
+        "exploration",
+        "dimensionality_reduction",
         "sequence_regression",
         "sequence_classification",
     ]
@@ -189,12 +195,65 @@ class AlgorithmDefinition(ApiModel):
     requires_factors: bool = False
     requires_time: bool = False
     supports_gpu: bool = False
+    status: AlgorithmStatus = "available"
+    dependencies: list[str] = Field(default_factory=list)
+    chart_templates: list[str] = Field(default_factory=list)
     parameters: list[AlgorithmParameter] = Field(default_factory=list)
 
 
 class AlgorithmCatalog(ApiModel):
     version: int = 1
     algorithms: list[AlgorithmDefinition]
+
+
+ChartType = Literal[
+    "line",
+    "bar",
+    "scatter",
+    "histogram",
+    "boxplot",
+    "heatmap",
+    "confusion_matrix",
+    "feature_importance",
+    "residual",
+    "cluster_scatter",
+    "anova_effect",
+]
+
+
+ChartValue = str | int | float | bool | list[str]
+
+
+class ChartSpecCreate(ApiModel):
+    name: str = Field(min_length=1, max_length=160)
+    chart_type: ChartType
+    dataset_id: str
+    model_run_id: str | None = None
+    x_column: str | None = None
+    y_columns: list[str] = Field(default_factory=list)
+    group_column: str | None = None
+    color_column: str | None = None
+    filters: dict[str, ChartValue] = Field(default_factory=dict)
+    options: dict[str, ChartValue] = Field(default_factory=dict)
+
+
+class ChartSpecRecord(ApiModel):
+    id: str
+    project_id: str
+    name: str
+    chart_type: ChartType
+    dataset_id: str
+    model_run_id: str | None = None
+    x_column: str | None = None
+    y_columns: list[str] = Field(default_factory=list)
+    group_column: str | None = None
+    color_column: str | None = None
+    filters: dict[str, ChartValue] = Field(default_factory=dict)
+    options: dict[str, ChartValue] = Field(default_factory=dict)
+    status: Literal["draft", "ready", "failed"] = "draft"
+    artifact_ids: list[str] = Field(default_factory=list)
+    created_at: datetime
+    updated_at: datetime
 
 
 class TrainingCreate(ApiModel):

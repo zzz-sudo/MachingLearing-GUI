@@ -1,5 +1,7 @@
 import type {
   AlgorithmCatalog,
+  ChartSpec,
+  ChartSpecCreate,
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
@@ -52,6 +54,22 @@ export class LocalWorkspaceClient {
 
   async listDatasets(projectId: string): Promise<DatasetVersion[]> {
     return this.request<DatasetVersion[]>(`/projects/${projectId}/datasets`);
+  }
+
+  async listCharts(projectId: string): Promise<ChartSpec[]> {
+    return this.request<ChartSpec[]>(`/projects/${projectId}/charts`);
+  }
+
+  async createChart(projectId: string, payload: ChartSpecCreate): Promise<ChartSpec> {
+    return this.request<ChartSpec>(`/projects/${projectId}/charts`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
+  }
+
+  async getChart(chartId: string): Promise<ChartSpec> {
+    return this.request<ChartSpec>(`/charts/${chartId}`);
   }
 
   async listJobs(projectId: string): Promise<Job[]> {

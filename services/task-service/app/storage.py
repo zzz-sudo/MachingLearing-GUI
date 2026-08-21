@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from app.errors import document_result_not_found, file_access_error, job_not_found, project_not_found
+from app.errors import chart_error, document_result_not_found, file_access_error, job_not_found, project_not_found
 from app.models import (
     AssetRecord,
     DatasetColumnSpec,
@@ -21,6 +21,8 @@ from app.models import (
     ProjectCreate,
     ProjectFileNode,
     ProjectRecord,
+    ChartSpecCreate,
+    ChartSpecRecord,
     TablePreview,
 )
 
@@ -42,9 +44,10 @@ def utc_now() -> datetime:
 
 
 class WorkspaceStore:
-    def __init__(self, data_dir: Path) -> None:
+    def __init__(self, data_dir: Path, default_project_dir: Path | None = None) -> None:
         self.data_dir = data_dir
         self.database_path = data_dir / "workspace.sqlite"
+        self.default_project_dir = default_project_dir
 
     def initialize(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -118,6 +121,30 @@ class WorkspaceStore:
                     updated_at TEXT NOT NULL,
                     FOREIGN KEY(asset_id) REFERENCES assets(id)
                 );
+
+                CREATE TABLE IF NOT EXISTS chart_specs (
+                    id TEXT PRIMARY KEY,
+                    project_id TEXT NOT NULL,
+                    name TEXT NOT NULL,
+                    chart_type TEXT NOT NULL,
+                    dataset_id TEXT NOT NULL,
+                    model_run_id TEXT,
+                    x_column TEXT,
+                    y_columns_json TEXT NOT NULL,
+                    group_column TEXT,
+                    color_column TEXT,
+                    filters_json TEXT NOT NULL,
+                    options_json TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    artifact_ids_json TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    updated_at TEXT NOT NULL,
+                    FOREIGN KEY(project_id) REFERENCES projects(id),
+                    FOREIGN KEY(dataset_id) REFERENCES dataset_versions(id)
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_chart_specs_project_id
+                ON chart_specs(project_id, updated_at DESC);
                 """
             )
 
@@ -197,11 +224,24 @@ class WorkspaceStore:
         if projects:
             return projects[0]
 
-        projects_dir = self.data_dir / "projects"
-        projects_dir.mkdir(parents=True, exist_ok=True)
-        return self.create_project(
-            ProjectCreate(name="本地数据工作区", path=str(projects_dir / "default"))
+        configured = os.environ.get("ML_GUI_DEFAULT_PROJECT_DIR")
+        projects_dir = Path(configured).expanduser().resolve() if configured else (
+            self.default_project_dir if self.default_project_dir is not None else self.data_dir / "projects" / "default"
         )
+        projects_dir.parent.mkdir(parents=True, exist_ok=True)
+        if projects_dir.exists() and (projects_dir / "project.json").is_file():
+            document = json.loads((projects_dir / "project.json").read_text(encoding="utf-8"))
+            existing = ProjectRecord.model_validate(document)
+            with self._connect() as connection:
+                connection.execute(
+                    """
+                    INSERT OR IGNORE INTO projects(id, name, path, created_at, updated_at)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (existing.id, existing.name, str(projects_dir), existing.created_at.isoformat(), existing.updated_at.isoformat()),
+                )
+            return self.get_project(existing.id)
+        return self.create_project(ProjectCreate(name="本地数据工作区", path=str(projects_dir)))
 
     def get_project(self, project_id: str) -> ProjectRecord:
         with self._connect() as connection:
@@ -554,19 +594,87 @@ class WorkspaceStore:
             raise project_not_found(dataset_id)
         return self._dataset_from_row(row)
 
-    def get_dataset_version(self, dataset_id: str) -> DatasetVersion:
+    def create_chart_spec(self, project_id: str, payload: ChartSpecCreate) -> ChartSpecRecord:
+        project = self.get_project(project_id)
+        dataset = self.get_dataset_version(payload.dataset_id)
+        if dataset.project_id != project.id:
+            raise project_not_found(payload.dataset_id)
+        available_columns = {column.name for column in dataset.columns}
+        requested_columns = [payload.x_column, *payload.y_columns, payload.group_column, payload.color_column]
+        invalid_columns = sorted({column for column in requested_columns if column and column not in available_columns})
+        if invalid_columns:
+            raise chart_error("图形字段不存在于数据集版本", datasetId=payload.dataset_id, columns=invalid_columns)
+        if not payload.y_columns:
+            raise chart_error("图形至少需要选择一个 Y 轴字段", datasetId=payload.dataset_id)
+        timestamp = utc_now()
+        record = ChartSpecRecord(
+            id=f"chart-{uuid4().hex}",
+            project_id=project.id,
+            name=payload.name,
+            chart_type=payload.chart_type,
+            dataset_id=payload.dataset_id,
+            model_run_id=payload.model_run_id,
+            x_column=payload.x_column,
+            y_columns=payload.y_columns,
+            group_column=payload.group_column,
+            color_column=payload.color_column,
+            filters=payload.filters,
+            options=payload.options,
+            status="draft",
+            created_at=timestamp,
+            updated_at=timestamp,
+        )
+        with self._connect() as connection:
+            connection.execute(
+                """
+                INSERT INTO chart_specs(
+                    id, project_id, name, chart_type, dataset_id, model_run_id,
+                    x_column, y_columns_json, group_column, color_column,
+                    filters_json, options_json, status, artifact_ids_json,
+                    created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    record.id, record.project_id, record.name, record.chart_type, record.dataset_id,
+                    record.model_run_id, record.x_column, json.dumps(record.y_columns, ensure_ascii=False),
+                    record.group_column, record.color_column, json.dumps(record.filters, ensure_ascii=False),
+                    json.dumps(record.options, ensure_ascii=False), record.status,
+                    json.dumps(record.artifact_ids, ensure_ascii=False), record.created_at.isoformat(),
+                    record.updated_at.isoformat(),
+                ),
+            )
+        return record
+
+    def list_chart_specs(self, project_id: str) -> list[ChartSpecRecord]:
+        self.get_project(project_id)
+        with self._connect() as connection:
+            rows = connection.execute(
+                """
+                SELECT id, project_id, name, chart_type, dataset_id, model_run_id,
+                       x_column, y_columns_json, group_column, color_column,
+                       filters_json, options_json, status, artifact_ids_json,
+                       created_at, updated_at
+                FROM chart_specs WHERE project_id = ? ORDER BY updated_at DESC
+                """,
+                (project_id,),
+            ).fetchall()
+        return [self._chart_from_row(row) for row in rows]
+
+    def get_chart_spec(self, chart_id: str) -> ChartSpecRecord:
         with self._connect() as connection:
             row = connection.execute(
                 """
-                SELECT id, project_id, source_asset_id, version,
-                       parquet_relative_path, row_count, columns_json, created_at
-                FROM dataset_versions WHERE id = ?
+                SELECT id, project_id, name, chart_type, dataset_id, model_run_id,
+                       x_column, y_columns_json, group_column, color_column,
+                       filters_json, options_json, status, artifact_ids_json,
+                       created_at, updated_at
+                FROM chart_specs WHERE id = ?
                 """,
-                (dataset_id,),
+                (chart_id,),
             ).fetchone()
         if row is None:
-            raise job_not_found(dataset_id)
-        return self._dataset_from_row(row)
+            raise project_not_found(chart_id)
+        return self._chart_from_row(row)
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
@@ -627,4 +735,25 @@ class WorkspaceStore:
             parquet_relative_path=row["parquet_relative_path"], row_count=row["row_count"],
             columns=[DatasetColumnSpec.model_validate(item) for item in json.loads(row["columns_json"])],
             created_at=datetime.fromisoformat(row["created_at"]),
+        )
+
+    @staticmethod
+    def _chart_from_row(row: sqlite3.Row) -> ChartSpecRecord:
+        return ChartSpecRecord(
+            id=row["id"],
+            project_id=row["project_id"],
+            name=row["name"],
+            chart_type=row["chart_type"],
+            dataset_id=row["dataset_id"],
+            model_run_id=row["model_run_id"],
+            x_column=row["x_column"],
+            y_columns=json.loads(row["y_columns_json"]),
+            group_column=row["group_column"],
+            color_column=row["color_column"],
+            filters=json.loads(row["filters_json"]),
+            options=json.loads(row["options_json"]),
+            status=row["status"],
+            artifact_ids=json.loads(row["artifact_ids_json"]),
+            created_at=datetime.fromisoformat(row["created_at"]),
+            updated_at=datetime.fromisoformat(row["updated_at"]),
         )

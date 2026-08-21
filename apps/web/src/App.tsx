@@ -3,6 +3,8 @@ import type { Dispatch, ReactNode, SetStateAction } from "react";
 import type {
   AlgorithmDefinition,
   AlgorithmParameter,
+  ChartSpec,
+  ChartSpecCreate,
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
@@ -63,6 +65,7 @@ import {
   WorkspaceClientError,
 } from "./api/localWorkspaceClient";
 import { demoProjects } from "./data/demo";
+import { ChartWorkspace } from "./workspaces/ChartWorkspace";
 
 const workspaceClient = new LocalWorkspaceClient();
 const initialProject = demoProjects[0]!;
@@ -72,6 +75,7 @@ const railItems = [
   { id: "datasets", label: "数据", icon: Database },
   { id: "documents", label: "文档", icon: FileText },
   { id: "models", label: "模型", icon: Box },
+  { id: "charts", label: "图形", icon: BarChart3 },
   { id: "jobs", label: "任务", icon: History },
   { id: "tools", label: "工具", icon: Wrench },
 ] as const;
@@ -83,6 +87,9 @@ const algorithmTaskLabels: Record<AlgorithmDefinition["taskType"], string> = {
   anova: "方差分析",
   sequence_regression: "序列回归",
   sequence_classification: "序列分类",
+  hypothesis_test: "假设检验",
+  exploration: "数据探索",
+  dimensionality_reduction: "降维分析",
 };
 
 function algorithmIcon(taskType: AlgorithmDefinition["taskType"]) {
@@ -90,7 +97,17 @@ function algorithmIcon(taskType: AlgorithmDefinition["taskType"]) {
   if (taskType === "regression") return LineChart;
   if (taskType === "clustering") return Network;
   if (taskType === "anova") return Sigma;
+  if (taskType === "hypothesis_test") return Sigma;
+  if (taskType === "exploration") return BarChart3;
+  if (taskType === "dimensionality_reduction") return Network;
   return Sparkles;
+}
+
+function algorithmStatusLabel(status: AlgorithmDefinition["status"]) {
+  if (status === "planned") return "计划中";
+  if (status === "experimental") return "实验性";
+  if (status === "disabled") return "暂不可用";
+  return "可运行";
 }
 
 const statusLabels: Record<Job["status"], string> = {
@@ -109,6 +126,7 @@ export function App() {
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [trainingResult, setTrainingResult] = useState<TrainingResult | null>(null);
+  const [charts, setCharts] = useState<ChartSpec[]>([]);
   const [algorithms, setAlgorithms] = useState<AlgorithmDefinition[]>([]);
   const [prompt, setPrompt] = useState("");
   const [health, setHealth] = useState<ServiceHealth | null>(null);
@@ -170,6 +188,7 @@ export function App() {
         setDataset(datasets[0] ?? null);
         const projectJobs = await workspaceClient.listJobs(project.id);
         setJobs(projectJobs);
+        setCharts(await workspaceClient.listCharts(project.id));
         setSelectedJobId(projectJobs[0]?.id ?? null);
         for (const asset of projectAssets) {
           if (asset.name.toLowerCase().endsWith(".pdf")) {
@@ -365,6 +384,16 @@ export function App() {
     }
   }
 
+  async function createChart(payload: ChartSpecCreate) {
+    try {
+      const chart = await workspaceClient.createChart(selectedProject.id, payload);
+      setCharts((current) => [chart, ...current.filter((item) => item.id !== chart.id)]);
+      setModelPlanStatus("图形规格已保存到当前工作区");
+    } catch (error: unknown) {
+      setImportError(asWorkspaceError(error, "chart_create", "无法保存图形规格"));
+    }
+  }
+
   function submitPrompt() {
     const message = prompt.trim();
     if (!message) {
@@ -410,6 +439,7 @@ export function App() {
             selectedFilePath={selectedFilePath}
             selectedAnalysis={selectedAnalysis}
             algorithms={algorithms}
+            charts={charts}
             onImport={() => projectReady && fileInputRef.current?.click()}
             onSelectAnalysis={(analysis) => {
               setSelectedAnalysis(analysis);
@@ -437,7 +467,7 @@ export function App() {
               onToggleInspector={() => setInspectorVisible((current) => !current)}
             />
             <WorkflowBar activeRail={activeRail} job={selectedJob} preview={preview} />
-            <WorkspaceContent
+              <WorkspaceContent
               activeRail={activeRail}
               job={selectedJob}
               project={selectedProject}
@@ -451,6 +481,7 @@ export function App() {
               selectedFile={selectedProjectFile}
               selectedAnalysis={selectedAnalysis}
               algorithms={algorithms}
+              charts={charts}
               modelPlanStatus={modelPlanStatus}
               jobs={jobs}
               trainingResult={trainingResult}
@@ -460,6 +491,7 @@ export function App() {
               onImport={() => projectReady && fileInputRef.current?.click()}
               onSelectAnalysis={setSelectedAnalysis}
               onCreateModelPlan={createTraining}
+              onCreateChart={createChart}
             />
             <CommandDock
               activeMode={activeMode}
@@ -671,6 +703,7 @@ type ContextSidebarProps = {
   selectedFilePath: string | null;
   selectedAnalysis: string;
   algorithms: AlgorithmDefinition[];
+  charts: ChartSpec[];
   onImport: () => void;
   onSelectAnalysis: (analysis: string) => void;
   onSelectFile: (file: ProjectFileNode) => void;
@@ -691,6 +724,7 @@ function ContextSidebar({
   selectedFilePath,
   selectedAnalysis,
   algorithms,
+  charts,
   onImport,
   onSelectAnalysis,
   onSelectFile,
@@ -759,14 +793,28 @@ function ContextSidebar({
                   key={method.id}
                   className="analysis-nav-row"
                   data-active={selectedAnalysis === method.id}
+                  data-disabled={method.status === "planned" || method.status === "disabled"}
+                  disabled={method.status === "planned" || method.status === "disabled"}
                   type="button"
                   onClick={() => onSelectAnalysis(method.id)}
                 >
                   <Icon aria-hidden="true" size={16} />
-                  <span><strong>{method.name}</strong><small>{algorithmTaskLabels[method.taskType]}</small></span>
+                  <span><strong>{method.name}</strong><small>{algorithmTaskLabels[method.taskType]} · {algorithmStatusLabel(method.status)}</small></span>
                 </button>
               );
             })}
+          </div>
+        </section>
+      ) : activeRail === "charts" ? (
+        <section className="sidebar-section sidebar-fill-section">
+          <SectionTitle icon={BarChart3} title="已保存图形" />
+          <div className="analysis-nav-list">
+            {charts.length === 0 ? <p className="sidebar-empty">还没有保存的图形规格</p> : charts.map((chart) => (
+              <button key={chart.id} className="analysis-nav-row" type="button">
+                <BarChart3 aria-hidden="true" size={16} />
+                <span><strong>{chart.name}</strong><small>{chart.chartType}</small></span>
+              </button>
+            ))}
           </div>
         </section>
       ) : activeRail === "tools" ? (
@@ -1080,6 +1128,7 @@ type WorkspaceContentProps = {
   selectedFile: ProjectFileNode | null;
   selectedAnalysis: string;
   algorithms: AlgorithmDefinition[];
+  charts: ChartSpec[];
   modelPlanStatus: string;
   trainingResult: TrainingResult | null;
   projectReady: boolean;
@@ -1088,6 +1137,7 @@ type WorkspaceContentProps = {
   onExport: () => void;
   onSelectAnalysis: (analysis: string) => void;
   onCreateModelPlan: (payload: TrainingCreate) => void;
+  onCreateChart: (payload: ChartSpecCreate) => void;
 };
 
 function WorkspaceContent({
@@ -1105,6 +1155,7 @@ function WorkspaceContent({
   selectedFile,
   selectedAnalysis,
   algorithms,
+  charts,
   modelPlanStatus,
   trainingResult,
   projectReady,
@@ -1113,6 +1164,7 @@ function WorkspaceContent({
   onExport,
   onSelectAnalysis,
   onCreateModelPlan,
+  onCreateChart,
 }: WorkspaceContentProps) {
   const numericColumnCount =
     preview?.columns.filter((column) =>
@@ -1144,6 +1196,10 @@ function WorkspaceContent({
         onCreatePlan={onCreateModelPlan}
       />
     );
+  }
+
+  if (activeRail === "charts") {
+    return <ChartWorkspace dataset={dataset} preview={preview} charts={charts} onCreateChart={onCreateChart} />;
   }
 
   if (activeRail === "jobs") {
@@ -1675,7 +1731,7 @@ function ModelWorkspace({
   }
 
   const factorsValid = !method?.requiresFactors || (method.id === "one_way_anova" ? factorColumns.length === 1 : factorColumns.length >= 2);
-  const canSubmit = Boolean(dataset && method && (!targetRequired || targetColumn) && (!featureRequired || featureColumns.length > 0) && factorsValid && (!method?.requiresTime || timeColumn));
+  const canSubmit = Boolean(dataset && method?.status === "available" && (!targetRequired || targetColumn) && (!featureRequired || featureColumns.length > 0) && factorsValid && (!method?.requiresTime || timeColumn));
 
   return (
     <div className="workspace-scroll model-workspace">
@@ -1702,9 +1758,9 @@ function ModelWorkspace({
               {algorithms.map((item) => {
                 const Icon = algorithmIcon(item.taskType);
                 return (
-                  <button key={item.id} data-active={selectedAnalysis === item.id} type="button" onClick={() => onSelectAnalysis(item.id)}>
+                  <button key={item.id} data-active={selectedAnalysis === item.id} disabled={item.status !== "available"} type="button" onClick={() => onSelectAnalysis(item.id)}>
                     <Icon aria-hidden="true" size={19} />
-                    <span><strong>{item.name}</strong><small>{algorithmTaskLabels[item.taskType]}</small><p>{item.description}</p></span>
+                    <span><strong>{item.name}</strong><small>{algorithmTaskLabels[item.taskType]} · {algorithmStatusLabel(item.status)}</small><p>{item.description}</p></span>
                   </button>
                 );
               })}

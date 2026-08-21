@@ -15,6 +15,8 @@ from app.importer import FileImporter
 from app.models import (
     AssetRecord,
     AlgorithmCatalog,
+    ChartSpecCreate,
+    ChartSpecRecord,
     DatasetCreate,
     DatasetVersion,
     DocumentParseResult,
@@ -141,6 +143,21 @@ def list_datasets(project_id: str, request: Request) -> list[DatasetVersion]:
 @router.post("/projects/{project_id}/datasets", response_model=DatasetVersion, status_code=201)
 def create_dataset(project_id: str, payload: DatasetCreate, request: Request) -> DatasetVersion:
     return DatasetService(get_store(request)).create(project_id, payload)
+
+
+@router.get("/projects/{project_id}/charts", response_model=list[ChartSpecRecord])
+def list_charts(project_id: str, request: Request) -> list[ChartSpecRecord]:
+    return get_store(request).list_chart_specs(project_id)
+
+
+@router.post("/projects/{project_id}/charts", response_model=ChartSpecRecord, status_code=201)
+def create_chart(project_id: str, payload: ChartSpecCreate, request: Request) -> ChartSpecRecord:
+    return get_store(request).create_chart_spec(project_id, payload)
+
+
+@router.get("/charts/{chart_id}", response_model=ChartSpecRecord)
+def get_chart(chart_id: str, request: Request) -> ChartSpecRecord:
+    return get_store(request).get_chart_spec(chart_id)
 
 
 @router.get("/datasets/{dataset_id}/parquet")

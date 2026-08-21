@@ -1076,6 +1076,145 @@ textarea:focus-visible {
   padding-top: 12px;
 }
 
+.chart-workspace {
+  padding-top: 12px;
+}
+
+.chart-intro-band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  min-height: 90px;
+  padding: 16px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.chart-intro-band h2 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.chart-intro-band p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chart-intro-band > div:last-child {
+  display: flex;
+  min-width: 88px;
+  flex-direction: column;
+  align-items: flex-end;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chart-intro-band strong {
+  color: var(--text);
+  font-size: 22px;
+}
+
+.chart-workspace-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.35fr) minmax(260px, 0.65fr);
+  gap: 14px;
+  margin-top: 14px;
+}
+
+.chart-canvas-section,
+.chart-config-section {
+  min-width: 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.chart-preview-bars {
+  display: flex;
+  height: 300px;
+  align-items: flex-end;
+  gap: 5px;
+  padding: 20px 18px 24px;
+  border-bottom: 1px solid var(--line);
+  background: linear-gradient(to top, #eef5f3 1px, transparent 1px) 0 100% / 100% 25%;
+}
+
+.chart-preview-bar {
+  position: relative;
+  flex: 1 1 0;
+  min-width: 4px;
+  max-width: 28px;
+  border-radius: 3px 3px 0 0;
+  background: #4e8d80;
+}
+
+.chart-preview-bar span {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  color: var(--muted);
+  font-size: 8px;
+  transform: translateX(-50%);
+}
+
+.chart-empty-state {
+  display: flex;
+  height: 300px;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.chart-empty-state strong {
+  color: var(--text);
+}
+
+.chart-config-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+}
+
+.chart-config-form label {
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  gap: 8px;
+  align-items: center;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chart-config-form input,
+.chart-config-form select {
+  width: 100%;
+  height: 31px;
+  padding: 0 8px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  font-size: 10px;
+}
+
+.chart-source-summary {
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+
+.sidebar-empty {
+  margin: 12px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
 .model-view-tabs {
   grid-template-columns: repeat(3, 92px);
   width: max-content;
@@ -1168,6 +1307,12 @@ textarea:focus-visible {
 .tool-grid > button:hover {
   border-color: #6c9b91;
   background: #f4f9f8;
+}
+
+.analysis-method-grid > button:disabled,
+.analysis-nav-row:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .analysis-method-grid span,

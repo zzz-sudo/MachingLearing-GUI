@@ -14,6 +14,8 @@
 
 当前仓库已经进入可运行原型阶段，包含 React 工作台、Python Task Service 和 Tauri 桌面外壳。本文件是当前仓库唯一需要维护的 Markdown 文档。
 
+默认测试工作区位于 `workspace/default`。它是真实项目目录，不是内存虚拟目录，包含 `source`、`datasets`、`models`、`charts`、`reports`、`logs` 和 `temp` 模块目录。Task Service 在仓库开发环境中首次打开项目时默认使用该目录；生产环境可以通过 `ML_GUI_DEFAULT_PROJECT_DIR` 指定其他目录。自动化测试夹具仍位于 `services/task-service/tests/fixtures`，默认工作区中的 CSV 文件用于手动导入和界面回归测试。
+
 ## 输入文件格式
 
 第一阶段规划支持以下输入格式。
@@ -212,6 +214,18 @@ PDF 解析结果可以导出以下格式。
 - 序列深度学习: 用于序列回归和序列分类的 RNN、LSTM 和 GRU。
 
 算法目录只表示计划由当前运行时正式支持的能力，不代表仅仅显示一个界面按钮。算法进入可发布状态前必须同时具备 Runner、输入校验、指标计算、产物保存、产物重载和项目内测试数据。尚未完成这些闭环的算法不能在任务提交界面中标记为可执行。
+
+算法目录现在额外记录 `status`、依赖包和推荐图形模板。`available` 表示 Runner、输入校验、结果产物和测试已经闭环；`planned` 表示已经纳入规划但暂未开放执行。前端会展示完整目录，但会禁用计划中的算法，避免把目录条目误认为已经实现。
+
+#### 图形工作区
+
+图形功能预留独立的 `ChartSpec`、`ChartTask` 和 `ChartArtifact` 边界。当前阶段先实现 `ChartSpec` 的持久化和数据集来源校验，前端提供字段映射和可恢复的预览工作区。图形规格会记录数据集版本、横轴、纵轴、分组字段、筛选条件和样式选项，接口如下:
+
+- `GET /api/projects/{project_id}/charts`
+- `POST /api/projects/{project_id}/charts`
+- `GET /api/charts/{chart_id}`
+
+后续接入 pyecharts 时，交互式 HTML 和 ECharts JSON 由图形生成 Worker 产生；统计诊断图继续由 Python 绘图 Worker 生成 PNG、SVG 和 PDF。前端不直接依赖具体绘图库，刷新后通过 `ChartSpec` 恢复编辑状态。
 
 多因素方差分析在本项目中表示 factorial ANOVA，不等同于多个因变量的 MANOVA。序列算法要求用户明确选择时间字段、目标字段、特征字段、窗口长度和预测步长，并使用按时间顺序切分的数据，禁止沿用普通表格任务的随机切分方式。
 

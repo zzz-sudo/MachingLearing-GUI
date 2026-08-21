@@ -84,6 +84,26 @@ def training_error(message: str, operation: str, **details: Any) -> WorkspaceSer
     )
 
 
+def algorithm_unavailable_error(algorithm_id: str, status: str) -> WorkspaceServiceError:
+    return WorkspaceServiceError(
+        error_type="AlgorithmUnavailableError",
+        message=f"算法当前不可运行: {algorithm_id}",
+        operation="training_create",
+        status_code=400,
+        details={"algorithmId": algorithm_id, "status": status},
+    )
+
+
+def chart_error(message: str, **details: Any) -> WorkspaceServiceError:
+    return WorkspaceServiceError(
+        error_type="ChartSpecError",
+        message=message,
+        operation="chart_create",
+        status_code=400,
+        details=details,
+    )
+
+
 def import_error(
     error_type: str,
     message: str,
