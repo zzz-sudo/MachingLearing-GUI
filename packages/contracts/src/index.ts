@@ -52,6 +52,7 @@ export type TrainingArtifact = {
 export type TrainingResult = {
   jobId: string;
   method: string;
+  datasetId?: string | null;
   taskType?: string | null;
   algorithmId?: string | null;
   status: JobStatus;

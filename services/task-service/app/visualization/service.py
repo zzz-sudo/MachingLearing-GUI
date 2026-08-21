@@ -39,6 +39,7 @@ class VisualizationService:
                     "name": chart.name,
                     "chartType": chart.chart_type,
                     "datasetPath": str(Path(project.path) / self.store.get_dataset_version(chart.dataset_id).parquet_relative_path),
+                    "modelResultPath": str(Path(project.path) / "models" / chart.model_run_id / "result.json") if chart.model_run_id else None,
                     "xColumn": chart.x_column,
                     "yColumns": chart.y_columns,
                     "groupColumn": chart.group_column,

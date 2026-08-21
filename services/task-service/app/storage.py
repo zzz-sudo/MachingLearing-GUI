@@ -604,7 +604,8 @@ class WorkspaceStore:
         invalid_columns = sorted({column for column in requested_columns if column and column not in available_columns})
         if invalid_columns:
             raise chart_error("图形字段不存在于数据集版本", datasetId=payload.dataset_id, columns=invalid_columns)
-        if not payload.y_columns:
+        derived_chart_types = {"confusion_matrix", "feature_importance", "residual", "cluster_scatter", "anova_effect"}
+        if not payload.y_columns and payload.chart_type not in derived_chart_types:
             raise chart_error("图形至少需要选择一个 Y 轴字段", datasetId=payload.dataset_id)
         timestamp = utc_now()
         record = ChartSpecRecord(

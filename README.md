@@ -229,6 +229,8 @@ PDF 解析结果可以导出以下格式。
 
 当前图形 Worker 已支持折线图、柱状图、散点图、直方图和箱线图的基础输出。训练环境安装 pyecharts 时使用 pyecharts 生成 HTML；未安装时使用兼容的 ECharts option 降级模板并返回 `VisualizationDependencyWarning`。静态图片由 matplotlib 生成 PNG 和 SVG，产物保存在 `workspace/default/charts/<job_id>`。
 
+训练成功后，前端调用 `/api/jobs/<job_id>/diagnostic-charts`，根据训练结果中的混淆矩阵、特征重要性、残差、聚类样本分配和方差分析表创建可追溯的图形规格。派生图生成时读取 `models/<model_job_id>/result.json`，不会复制或修改原始数据集。
+
 多因素方差分析在本项目中表示 factorial ANOVA，不等同于多个因变量的 MANOVA。序列算法要求用户明确选择时间字段、目标字段、特征字段、窗口长度和预测步长，并使用按时间顺序切分的数据，禁止沿用普通表格任务的随机切分方式。
 
 监督学习 Runner 已经实现逻辑回归、决策树分类、随机森林分类和回归、极端随机树分类和回归、直方图梯度提升分类和回归、线性回归、岭回归以及 XGBoost 分类和回归。训练请求可以指定特征字段和算法超参数。Worker 会根据训练数据自动建立数值缺失值填充和标准化、类别缺失值填充和 One-Hot 编码，并把预处理 Pipeline、模型和分类目标编码器一起保存为 `model.joblib`。

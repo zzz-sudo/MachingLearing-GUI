@@ -33,6 +33,7 @@ from app.models import (
     TrainingCreate,
     TrainingResult,
 )
+from app.visualization.diagnostics import build_diagnostic_specs
 from app.storage import WorkspaceStore
 from app.training import TrainingService
 from app.visualization.service import VisualizationService
@@ -224,6 +225,24 @@ def create_training(project_id: str, payload: TrainingCreate, request: Request) 
 @router.get("/jobs/{job_id}/training-result", response_model=TrainingResult)
 def get_training_result(job_id: str, request: Request) -> TrainingResult:
     return get_training_service(request).get_result(job_id)
+
+
+@router.post("/jobs/{job_id}/diagnostic-charts", response_model=list[ChartSpecRecord], status_code=201)
+def create_diagnostic_charts(job_id: str, request: Request) -> list[ChartSpecRecord]:
+    """为已完成训练任务创建可追溯的诊断图规格，不自动覆盖已有规格。"""
+
+    store = get_store(request)
+    job = store.get_job(job_id)
+    result = get_training_service(request).get_result(job_id)
+    specs = build_diagnostic_specs(result)
+    existing = {chart.name: chart for chart in store.list_chart_specs(job.project_id) if chart.model_run_id == job_id}
+    created: list[ChartSpecRecord] = []
+    for payload in specs:
+        if payload.name in existing:
+            created.append(existing[payload.name])
+            continue
+        created.append(store.create_chart_spec(job.project_id, payload))
+    return created
 
 
 @router.get("/jobs/{job_id}/chart-result", response_model=ChartGenerationResult)

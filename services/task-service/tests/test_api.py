@@ -162,6 +162,9 @@ def test_training_api_dispatches_multiple_algorithm_runners(tmp_path: Path) -> N
         )
         assert classification_task.status_code == 202
         classification_result = wait_for_training(client, project["id"], classification_task.json()["jobId"])
+        diagnostic_response = client.post(f"/api/jobs/{classification_task.json()['jobId']}/diagnostic-charts")
+        assert diagnostic_response.status_code == 201
+        assert {item["chartType"] for item in diagnostic_response.json()} == {"confusion_matrix", "feature_importance"}
 
         xgboost_task = client.post(
             f"/api/projects/{project['id']}/training",
@@ -229,6 +232,7 @@ def test_training_api_dispatches_multiple_algorithm_runners(tmp_path: Path) -> N
 
     assert classification_result["status"] == "succeeded"
     assert classification_result["algorithmId"] == "random_forest_classifier"
+    assert classification_result["datasetId"] == classification["id"]
     assert xgboost_result["status"] == "succeeded"
     assert xgboost_result["algorithmId"] == "xgboost_classifier"
     assert clustering_result["status"] == "succeeded"

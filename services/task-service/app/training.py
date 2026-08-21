@@ -68,6 +68,7 @@ class TrainingService:
                 {
                     "jobId": job.id,
                     "projectRoot": project.path,
+                    "datasetId": dataset.id,
                     "datasetPath": str(Path(project.path) / dataset.parquet_relative_path),
                     "method": payload.method or definition.task_type,
                     "taskType": definition.task_type,
@@ -94,6 +95,7 @@ class TrainingService:
         return TrainingResult(
             job_id=job.id,
             method=payload.method or definition.task_type,
+            dataset_id=dataset.id,
             task_type=definition.task_type,
             algorithm_id=algorithm_id,
             status=JobStatus.QUEUED,
@@ -131,7 +133,10 @@ class TrainingService:
             )
             if process.returncode != 0:
                 raise RuntimeError(process.stderr.strip() or process.stdout.strip() or "训练 Worker 返回失败状态")
-            result = TrainingResult.model_validate_json(result_path.read_text(encoding="utf-8"))
+            raw_result = json.loads(result_path.read_text(encoding="utf-8"))
+            raw_result["datasetId"] = json.loads(config_path.read_text(encoding="utf-8"))["datasetId"]
+            result_path.write_text(json.dumps(raw_result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+            result = TrainingResult.model_validate(raw_result)
             if result.status == JobStatus.SUCCEEDED:
                 self.store.update_job(job_id, JobUpdate(status=JobStatus.SUCCEEDED, progress=100, message="训练完成，结果已保存"))
             else:
@@ -140,6 +145,7 @@ class TrainingService:
             result = TrainingResult(
                 job_id=job_id,
                 method="unknown",
+                dataset_id=None,
                 status=JobStatus.FAILED,
                 error_type=type(error).__name__,
                 error_message=str(error),

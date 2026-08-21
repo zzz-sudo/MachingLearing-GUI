@@ -74,6 +74,8 @@ def run() -> None:
         "--add-data",
         f"{SERVICE_ROOT / 'app' / 'visualization' / 'renderer.py'}{os.pathsep}app/visualization",
         "--add-data",
+        f"{SERVICE_ROOT / 'app' / 'visualization' / 'diagnostics.py'}{os.pathsep}app/visualization",
+        "--add-data",
         f"{SERVICE_ROOT / 'app' / 'visualization' / 'worker.py'}{os.pathsep}app/visualization",
         "--exclude-module",
         "httpx",

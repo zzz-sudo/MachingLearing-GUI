@@ -151,6 +151,7 @@ export function App() {
   const [selectedAnalysis, setSelectedAnalysis] = useState("random_forest_regressor");
   const [modelPlanStatus, setModelPlanStatus] = useState("尚未创建分析计划");
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const diagnosticJobsRef = useRef(new Set<string>());
 
   useEffect(() => {
     void workspaceClient
@@ -261,7 +262,19 @@ export function App() {
     if (!selectedJob || !["succeeded", "failed"].includes(selectedJob.status)) {
       return;
     }
-    void workspaceClient.getTrainingResult(selectedJob.id).then(setTrainingResult).catch(() => undefined);
+    void workspaceClient.getTrainingResult(selectedJob.id).then((result) => {
+      setTrainingResult(result);
+      if (result.status === "succeeded" && !diagnosticJobsRef.current.has(selectedJob.id)) {
+        diagnosticJobsRef.current.add(selectedJob.id);
+        void workspaceClient.createDiagnosticCharts(selectedJob.id).then((created) => {
+          setCharts((current) => {
+            const byId = new Map(current.map((chart) => [chart.id, chart]));
+            created.forEach((chart) => byId.set(chart.id, chart));
+            return Array.from(byId.values());
+          });
+        }).catch(() => undefined);
+      }
+    }).catch(() => undefined);
   }, [selectedJob?.id, selectedJob?.status]);
 
   async function importSelectedFile(file: File) {
@@ -501,6 +514,7 @@ export function App() {
               onCreateChart={createChart}
               onGenerateChart={generateChart}
               onGetChartResult={workspaceClient.getChartResult.bind(workspaceClient)}
+              getChartArtifactUrl={workspaceClient.getChartArtifactUrl.bind(workspaceClient)}
             />
             <CommandDock
               activeMode={activeMode}
@@ -1149,6 +1163,7 @@ type WorkspaceContentProps = {
   onCreateChart: (payload: ChartSpecCreate) => Promise<ChartSpec>;
   onGenerateChart: (chartId: string) => Promise<ChartGenerationResult>;
   onGetChartResult: (jobId: string) => Promise<ChartGenerationResult>;
+  getChartArtifactUrl: (jobId: string, relativePath: string) => string;
 };
 
 function WorkspaceContent({
@@ -1178,6 +1193,7 @@ function WorkspaceContent({
   onCreateChart,
   onGenerateChart,
   onGetChartResult,
+  getChartArtifactUrl,
 }: WorkspaceContentProps) {
   const numericColumnCount =
     preview?.columns.filter((column) =>
@@ -1212,7 +1228,7 @@ function WorkspaceContent({
   }
 
   if (activeRail === "charts") {
-    return <ChartWorkspace dataset={dataset} preview={preview} charts={charts} onCreateChart={onCreateChart} onGenerateChart={onGenerateChart} onGetChartResult={onGetChartResult} />;
+    return <ChartWorkspace dataset={dataset} preview={preview} charts={charts} onCreateChart={onCreateChart} onGenerateChart={onGenerateChart} onGetChartResult={onGetChartResult} getChartArtifactUrl={getChartArtifactUrl} />;
   }
 
   if (activeRail === "jobs") {

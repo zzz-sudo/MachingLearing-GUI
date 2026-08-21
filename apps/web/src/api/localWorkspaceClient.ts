@@ -102,6 +102,10 @@ export class LocalWorkspaceClient {
     return this.request<TrainingResult>(`/jobs/${jobId}/training-result`);
   }
 
+  async createDiagnosticCharts(jobId: string): Promise<ChartSpec[]> {
+    return this.request<ChartSpec[]>(`/jobs/${jobId}/diagnostic-charts`, { method: "POST" });
+  }
+
   async createDataset(
     projectId: string,
     assetId: string,

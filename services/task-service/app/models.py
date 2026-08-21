@@ -303,6 +303,7 @@ class TrainingArtifact(ApiModel):
 class TrainingResult(ApiModel):
     job_id: str
     method: str
+    dataset_id: str | None = None
     task_type: str | None = None
     algorithm_id: str | None = None
     status: JobStatus

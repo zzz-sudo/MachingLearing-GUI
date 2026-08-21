@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { BarChart3 } from "lucide-react";
+import { BarChart3, Download, ExternalLink } from "lucide-react";
 import type { ChartGenerationResult, ChartSpec, ChartSpecCreate, DatasetVersion, TablePreview } from "@ml-gui/contracts";
 
 type ChartWorkspaceProps = {
@@ -9,13 +9,14 @@ type ChartWorkspaceProps = {
   onCreateChart: (payload: ChartSpecCreate) => Promise<ChartSpec>;
   onGenerateChart: (chartId: string) => Promise<ChartGenerationResult>;
   onGetChartResult: (jobId: string) => Promise<ChartGenerationResult>;
+  getChartArtifactUrl: (jobId: string, relativePath: string) => string;
 };
 
 function ChartProperty({ label, value }: { label: string; value: string }) {
   return <div className="property-row"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-export function ChartWorkspace({ dataset, preview, charts, onCreateChart, onGenerateChart, onGetChartResult }: ChartWorkspaceProps) {
+export function ChartWorkspace({ dataset, preview, charts, onCreateChart, onGenerateChart, onGetChartResult, getChartArtifactUrl }: ChartWorkspaceProps) {
   const columns = dataset?.columns ?? [];
   const numericColumns = columns.filter((column) => ["integer", "number"].includes(column.dataType));
   const [name, setName] = useState("数据分布图");
@@ -82,7 +83,7 @@ export function ChartWorkspace({ dataset, preview, charts, onCreateChart, onGene
             <label><span>Y 轴</span><select value={yColumn} onChange={(event) => setYColumn(event.target.value)}><option value="">请选择字段</option>{numericColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
             <div className="chart-source-summary"><ChartProperty label="数据集" value={dataset ? `v${dataset.version}` : "未选择"} /><ChartProperty label="来源字段" value={`${xColumn || "未选择"} / ${yColumn || "未选择"}`} /><ChartProperty label="预览记录" value={String(rows.length)} /></div>
             <button className="primary-button" disabled={generating || !dataset || !xColumn || !yColumn || !name.trim()} type="button" onClick={() => void saveAndGenerate()}><BarChart3 aria-hidden="true" size={15} />{generating ? "正在生成" : "保存并生成图形"}</button>
-            {generation ? <div className="chart-generation-state"><ChartProperty label="任务状态" value={generation.status} />{generation.warnings.map((warning) => <p key={warning}>{warning}</p>)}{generation.artifacts.map((artifact) => <code key={artifact.relativePath}>{artifact.format}: {artifact.relativePath}</code>)}</div> : null}
+            {generation ? <div className="chart-generation-state"><ChartProperty label="任务状态" value={generation.status} />{generation.warnings.map((warning) => <p key={warning}>{warning}</p>)}{generation.status === "succeeded" && generation.jobId ? <div className="chart-artifact-preview"><div className="chart-artifact-toolbar"><span>交互式预览</span><a className="artifact-download-button" href={getChartArtifactUrl(generation.jobId, "chart.html")} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" size={14} />打开</a></div><iframe className="chart-iframe" title="图形 HTML 预览" src={getChartArtifactUrl(generation.jobId, "chart.html")} sandbox="allow-scripts" /></div> : null}{generation.artifacts.map((artifact) => <a className="artifact-download-button" key={artifact.relativePath} href={getChartArtifactUrl(generation.jobId, artifact.relativePath)} download><Download aria-hidden="true" size={14} />下载 {artifact.format.toUpperCase()}</a>)}</div> : null}
           </div>
         </section>
       </div>

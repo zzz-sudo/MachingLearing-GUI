@@ -9,19 +9,41 @@ from typing import Any
 def _load_frame(config: dict[str, Any]):
     import pandas as pd
 
+    diagnostic_table = config.get("options", {}).get("diagnosticTable")
+    result_path = config.get("modelResultPath")
+    if diagnostic_table and result_path:
+        result = json.loads(Path(result_path).read_text(encoding="utf-8"))
+        rows = result.get("tables", {}).get(diagnostic_table, [])
+        if not rows:
+            raise ValueError(f"ChartSpecError: 训练结果表为空: {diagnostic_table}")
+        return pd.DataFrame(rows)
+
     frame = pd.read_parquet(config["datasetPath"])
     columns = set(frame.columns)
     requested = [config.get("xColumn"), *config.get("yColumns", []), config.get("groupColumn")]
     missing = sorted({column for column in requested if column and column not in columns})
     if missing:
         raise ValueError(f"ChartSpecError: 图形字段不存在: {', '.join(missing)}")
-    if not config.get("yColumns"):
+    if not config.get("yColumns") and not diagnostic_table:
         raise ValueError("ChartSpecError: 至少需要一个 Y 轴字段")
     return frame
 
 
 def _option(config: dict[str, Any], frame) -> dict[str, Any]:
     chart_type = config["chartType"]
+    if chart_type == "confusion_matrix":
+        categories = sorted({str(row) for row in frame["actual"]} | {str(row) for row in frame["predicted"]})
+        index = {(actual, predicted): int(count) for actual, predicted, count in frame[["actual", "predicted", "count"]].itertuples(index=False, name=None)}
+        return {"title": {"text": config["name"]}, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": 0, "max": max(index.values(), default=1), "calculable": True}, "series": [{"type": "heatmap", "data": [[predicted, actual, index.get((actual, predicted), 0)] for actual in categories for predicted in categories]}]}
+    if chart_type == "feature_importance":
+        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "axis"}, "xAxis": {"type": "category", "data": frame["feature"].astype(str).tolist()}, "yAxis": {"type": "value"}, "series": [{"type": "bar", "data": frame["importance"].tolist()}]}
+    if chart_type == "residual":
+        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "item"}, "xAxis": {"type": "value", "name": "predicted"}, "yAxis": {"type": "value", "name": "residual"}, "series": [{"type": "scatter", "data": frame[["predicted", "residual"]].values.tolist()}]}
+    if chart_type == "anova_effect":
+        rows = frame[frame["term"].astype(str).str.lower() != "residual"]
+        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "axis"}, "xAxis": {"type": "category", "data": rows["term"].astype(str).tolist()}, "yAxis": {"type": "value", "name": "F"}, "series": [{"type": "bar", "data": rows["f"].fillna(0).tolist()}]}
+    if chart_type == "cluster_scatter":
+        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "item"}, "xAxis": {"type": "value", "name": "rowIndex"}, "yAxis": {"type": "value", "name": "cluster"}, "series": [{"type": "scatter", "data": frame[["rowIndex", "cluster"]].values.tolist()}]}
     x_column = config.get("xColumn")
     y_columns = config["yColumns"]
     x_values = frame[x_column].astype(str).tolist() if x_column else [str(index) for index in frame.index]
@@ -66,6 +88,8 @@ def _write_html(path: Path, option: dict[str, Any]) -> None:
 
 
 def _render_with_pyecharts(path: Path, config: dict[str, Any], frame) -> tuple[dict[str, Any], bool]:
+    if config["chartType"] in {"confusion_matrix", "feature_importance", "residual", "cluster_scatter", "anova_effect"}:
+        return _option(config, frame), False
     try:
         from pyecharts import options as opts
         from pyecharts.charts import Bar, Line, Scatter
@@ -101,26 +125,49 @@ def _write_static(path: Path, config: dict[str, Any], frame) -> None:
 
     figure, axis = plt.subplots(figsize=(10, 5), constrained_layout=True)
     chart_type = config["chartType"]
-    x_column = config.get("xColumn")
-    y_columns = config["yColumns"]
-    x_values = frame[x_column].astype(str).tolist() if x_column else list(range(len(frame)))
-    if chart_type == "histogram":
-        axis.hist(frame[y_columns[0]].dropna(), bins=12, color="#4e8d80")
-    elif chart_type == "boxplot":
-        axis.boxplot([frame[column].dropna() for column in y_columns], labels=y_columns)
-    elif chart_type == "scatter":
-        for column in y_columns:
-            axis.scatter(x_values, frame[column], label=column, s=18)
-        axis.legend()
-    elif chart_type == "bar":
-        axis.bar(x_values, frame[y_columns[0]], color="#4e8d80")
+    if chart_type == "confusion_matrix":
+        pivot = frame.pivot(index="actual", columns="predicted", values="count").fillna(0)
+        image = axis.imshow(pivot.values, cmap="Blues")
+        axis.set_xticks(range(len(pivot.columns)), labels=[str(value) for value in pivot.columns])
+        axis.set_yticks(range(len(pivot.index)), labels=[str(value) for value in pivot.index])
+        figure.colorbar(image, ax=axis)
+    elif chart_type == "feature_importance":
+        axis.bar(frame["feature"].astype(str), frame["importance"], color="#4e8d80")
+        axis.tick_params(axis="x", rotation=35)
+    elif chart_type == "residual":
+        axis.scatter(frame["predicted"], frame["residual"], color="#4e8d80", s=18)
+        axis.axhline(0, color="#777", linewidth=1)
+        axis.set_xlabel("predicted")
+        axis.set_ylabel("residual")
+    elif chart_type == "cluster_scatter":
+        axis.scatter(frame["rowIndex"], frame["cluster"], color="#4e8d80", s=18)
+        axis.set_xlabel("rowIndex")
+        axis.set_ylabel("cluster")
+    elif chart_type == "anova_effect":
+        rows = frame[frame["term"].astype(str).str.lower() != "residual"]
+        axis.bar(rows["term"].astype(str), rows["f"].fillna(0), color="#4e8d80")
+        axis.tick_params(axis="x", rotation=35)
     else:
-        for column in y_columns:
-            axis.plot(x_values, frame[column], label=column)
-        axis.legend()
+        x_column = config.get("xColumn")
+        y_columns = config["yColumns"]
+        x_values = frame[x_column].astype(str).tolist() if x_column else list(range(len(frame)))
+        if chart_type == "histogram":
+            axis.hist(frame[y_columns[0]].dropna(), bins=12, color="#4e8d80")
+        elif chart_type == "boxplot":
+            axis.boxplot([frame[column].dropna() for column in y_columns], labels=y_columns)
+        elif chart_type == "scatter":
+            for column in y_columns:
+                axis.scatter(x_values, frame[column], label=column, s=18)
+            axis.legend()
+        elif chart_type == "bar":
+            axis.bar(x_values, frame[y_columns[0]], color="#4e8d80")
+        else:
+            for column in y_columns:
+                axis.plot(x_values, frame[column], label=column)
+            axis.legend()
+        axis.set_xlabel(x_column or "index")
+        axis.set_ylabel(", ".join(y_columns))
     axis.set_title(config["name"])
-    axis.set_xlabel(x_column or "index")
-    axis.set_ylabel(", ".join(y_columns))
     figure.savefig(path, dpi=150)
     figure.savefig(path.with_suffix(".svg"))
     plt.close(figure)
