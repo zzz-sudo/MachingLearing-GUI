@@ -6,7 +6,7 @@
 
 输入文件: csv, xlsx, pdf, zip, tar, tgz, gz。后续扩展 docx, pptx, md, html, parquet 和常用图片格式。
 
-输出文件: Parquet 数据集、DOCX、XLSX、Markdown、TXT、JSON 结构化结果、模型文件、预测文件和 Windows 桌面程序。
+输出文件: Parquet 数据集、DOCX、XLSX、Markdown、TXT、JSON 结构化结果、模型文件、预测文件、图形 JSON、HTML、PNG、SVG 和 Windows 桌面程序。
 
 ## 项目说明
 
@@ -226,6 +226,8 @@ PDF 解析结果可以导出以下格式。
 - `GET /api/charts/{chart_id}`
 
 后续接入 pyecharts 时，交互式 HTML 和 ECharts JSON 由图形生成 Worker 产生；统计诊断图继续由 Python 绘图 Worker 生成 PNG、SVG 和 PDF。前端不直接依赖具体绘图库，刷新后通过 `ChartSpec` 恢复编辑状态。
+
+当前图形 Worker 已支持折线图、柱状图、散点图、直方图和箱线图的基础输出。训练环境安装 pyecharts 时使用 pyecharts 生成 HTML；未安装时使用兼容的 ECharts option 降级模板并返回 `VisualizationDependencyWarning`。静态图片由 matplotlib 生成 PNG 和 SVG，产物保存在 `workspace/default/charts/<job_id>`。
 
 多因素方差分析在本项目中表示 factorial ANOVA，不等同于多个因变量的 MANOVA。序列算法要求用户明确选择时间字段、目标字段、特征字段、窗口长度和预测步长，并使用按时间顺序切分的数据，禁止沿用普通表格任务的随机切分方式。
 

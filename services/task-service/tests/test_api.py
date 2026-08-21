@@ -74,6 +74,19 @@ def wait_for_training(
     raise AssertionError(f"训练任务超时: {job_id}")
 
 
+def wait_for_chart(client: TestClient, job_id: str, timeout_seconds: float = 60.0) -> dict[str, object]:
+    deadline = time.monotonic() + timeout_seconds
+    while time.monotonic() < deadline:
+        jobs = client.get("/api/jobs").json()
+        job = next(item for item in jobs if item["id"] == job_id)
+        if job["status"] in {"succeeded", "failed", "cancelled"}:
+            result = client.get(f"/api/jobs/{job_id}/chart-result")
+            assert result.status_code == 200
+            return result.json()
+        time.sleep(0.25)
+    raise AssertionError(f"图形任务超时: {job_id}")
+
+
 def test_default_project_uses_repository_workspace(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.delenv("ML_GUI_DEFAULT_PROJECT_DIR", raising=False)
     monkeypatch.setenv("ML_GUI_DATA_DIR", str(tmp_path / "service-data"))
@@ -293,6 +306,41 @@ def test_chart_specs_persist_dataset_source_and_restore(tmp_path: Path) -> None:
     assert restored.status_code == 200
     assert restored.json()["datasetId"] == dataset["id"]
     assert restored.json()["filters"]["region"] == ["east", "west"]
+
+
+def test_chart_generation_creates_reproducible_artifacts(tmp_path: Path) -> None:
+    fixture = Path(__file__).parent / "fixtures" / "algorithms" / "regression_fixture.csv"
+    project_path = tmp_path / "chart-generation-project"
+
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        dataset = create_dataset_from_csv(
+            client,
+            project["id"],
+            fixture,
+            [
+                {"name": "feature_x", "dataType": "number"},
+                {"name": "feature_y", "dataType": "number"},
+                {"name": "region", "dataType": "text"},
+                {"name": "target_value", "dataType": "number"},
+            ],
+        )
+        chart = client.post(
+            f"/api/projects/{project['id']}/charts",
+            json={"name": "回归散点图", "chartType": "scatter", "datasetId": dataset["id"], "xColumn": "feature_x", "yColumns": ["target_value"]},
+        )
+        generated = client.post(f"/api/projects/{project['id']}/charts/{chart.json()['id']}/generate")
+        result = wait_for_chart(client, generated.json()["jobId"])
+        html = client.get(f"/api/jobs/{generated.json()['jobId']}/chart-artifacts/chart.html")
+        png = client.get(f"/api/jobs/{generated.json()['jobId']}/chart-artifacts/chart.png")
+
+    assert generated.status_code == 202
+    assert result["status"] == "succeeded", result
+    assert {artifact["format"] for artifact in result["artifacts"]} == {"json", "html", "png", "svg"}
+    assert html.status_code == 200
+    assert b"echarts" in html.content
+    assert png.status_code == 200
+    assert png.content.startswith(b"\x89PNG")
 
 
 def test_create_project_keeps_chinese_metadata(tmp_path: Path) -> None:

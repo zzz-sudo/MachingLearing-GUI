@@ -140,7 +140,7 @@ export type ChartSpec = {
   colorColumn?: string | null;
   filters: Record<string, string | number | boolean | string[]>;
   options: Record<string, string | number | boolean>;
-  status: "draft" | "ready" | "failed";
+  status: "draft" | "queued" | "running" | "succeeded" | "failed";
   artifactIds: string[];
   createdAt: string;
   updatedAt: string;
@@ -157,6 +157,26 @@ export type ChartSpecCreate = {
   colorColumn?: string | null;
   filters?: Record<string, string | number | boolean | string[]>;
   options?: Record<string, string | number | boolean>;
+};
+
+export type ChartArtifact = {
+  kind: string;
+  relativePath: string;
+  mediaType: string;
+  format: string;
+  description: string;
+};
+
+export type ChartGenerationResult = {
+  jobId: string;
+  chartId: string;
+  status: JobStatus;
+  chartType: ChartType;
+  artifacts: ChartArtifact[];
+  warnings: string[];
+  environment: Record<string, string>;
+  errorType?: string | null;
+  errorMessage?: string | null;
 };
 
 export type ServiceHealth = {

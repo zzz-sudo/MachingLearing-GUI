@@ -250,10 +250,30 @@ class ChartSpecRecord(ApiModel):
     color_column: str | None = None
     filters: dict[str, ChartValue] = Field(default_factory=dict)
     options: dict[str, ChartValue] = Field(default_factory=dict)
-    status: Literal["draft", "ready", "failed"] = "draft"
+    status: Literal["draft", "queued", "running", "succeeded", "failed"] = "draft"
     artifact_ids: list[str] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+
+class ChartArtifact(ApiModel):
+    kind: str
+    relative_path: str
+    media_type: str
+    format: str
+    description: str
+
+
+class ChartGenerationResult(ApiModel):
+    job_id: str
+    chart_id: str
+    status: JobStatus
+    chart_type: ChartType
+    artifacts: list[ChartArtifact] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    environment: dict[str, str] = Field(default_factory=dict)
+    error_type: str | None = None
+    error_message: str | None = None
 
 
 class TrainingCreate(ApiModel):

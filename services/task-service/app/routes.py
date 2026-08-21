@@ -17,6 +17,7 @@ from app.models import (
     AlgorithmCatalog,
     ChartSpecCreate,
     ChartSpecRecord,
+    ChartGenerationResult,
     DatasetCreate,
     DatasetVersion,
     DocumentParseResult,
@@ -34,6 +35,7 @@ from app.models import (
 )
 from app.storage import WorkspaceStore
 from app.training import TrainingService
+from app.visualization.service import VisualizationService
 
 router = APIRouter()
 
@@ -44,6 +46,10 @@ def get_store(request: Request) -> WorkspaceStore:
 
 def get_training_service(request: Request) -> TrainingService:
     return request.app.state.training_service
+
+
+def get_visualization_service(request: Request) -> VisualizationService:
+    return request.app.state.visualization_service
 
 
 @router.get("/health", response_model=ServiceHealth)
@@ -160,6 +166,11 @@ def get_chart(chart_id: str, request: Request) -> ChartSpecRecord:
     return get_store(request).get_chart_spec(chart_id)
 
 
+@router.post("/projects/{project_id}/charts/{chart_id}/generate", response_model=ChartGenerationResult, status_code=202)
+def generate_chart(project_id: str, chart_id: str, request: Request) -> ChartGenerationResult:
+    return get_visualization_service(request).start(project_id, chart_id)
+
+
 @router.get("/datasets/{dataset_id}/parquet")
 def download_parquet(dataset_id: str, request: Request) -> FileResponse:
     store = get_store(request)
@@ -213,5 +224,18 @@ def create_training(project_id: str, payload: TrainingCreate, request: Request) 
 @router.get("/jobs/{job_id}/training-result", response_model=TrainingResult)
 def get_training_result(job_id: str, request: Request) -> TrainingResult:
     return get_training_service(request).get_result(job_id)
+
+
+@router.get("/jobs/{job_id}/chart-result", response_model=ChartGenerationResult)
+def get_chart_result(job_id: str, request: Request) -> ChartGenerationResult:
+    return get_visualization_service(request).get_result(job_id)
+
+
+@router.get("/jobs/{job_id}/chart-artifacts/{relative_path:path}")
+def get_chart_artifact(job_id: str, relative_path: str, request: Request) -> FileResponse:
+    job = get_store(request).get_job(job_id)
+    path = get_store(request).resolve_project_file(job.project_id, f"charts/{job_id}/{relative_path}")
+    media_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
+    return FileResponse(path, media_type=media_type, filename=path.name)
     AssetRecord,
     ImportResult,

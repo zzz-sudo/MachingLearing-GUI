@@ -676,6 +676,32 @@ class WorkspaceStore:
             raise project_not_found(chart_id)
         return self._chart_from_row(row)
 
+    def update_chart_spec(
+        self,
+        chart_id: str,
+        *,
+        status: str,
+        artifact_ids: list[str] | None = None,
+    ) -> ChartSpecRecord:
+        self.get_chart_spec(chart_id)
+        timestamp = utc_now().isoformat()
+        with self._connect() as connection:
+            if artifact_ids is None:
+                connection.execute(
+                    "UPDATE chart_specs SET status = ?, updated_at = ? WHERE id = ?",
+                    (status, timestamp, chart_id),
+                )
+            else:
+                connection.execute(
+                    """
+                    UPDATE chart_specs
+                    SET status = ?, artifact_ids_json = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (status, json.dumps(artifact_ids, ensure_ascii=False), timestamp, chart_id),
+                )
+        return self.get_chart_spec(chart_id)
+
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.database_path)
         connection.row_factory = sqlite3.Row

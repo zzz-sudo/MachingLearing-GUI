@@ -2,6 +2,7 @@ import type {
   AlgorithmCatalog,
   ChartSpec,
   ChartSpecCreate,
+  ChartGenerationResult,
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
@@ -70,6 +71,19 @@ export class LocalWorkspaceClient {
 
   async getChart(chartId: string): Promise<ChartSpec> {
     return this.request<ChartSpec>(`/charts/${chartId}`);
+  }
+
+  async generateChart(projectId: string, chartId: string): Promise<ChartGenerationResult> {
+    return this.request<ChartGenerationResult>(`/projects/${projectId}/charts/${chartId}/generate`, { method: "POST" });
+  }
+
+  async getChartResult(jobId: string): Promise<ChartGenerationResult> {
+    return this.request<ChartGenerationResult>(`/jobs/${jobId}/chart-result`);
+  }
+
+  getChartArtifactUrl(jobId: string, relativePath: string): string {
+    const encodedPath = relativePath.split("/").map((part) => encodeURIComponent(part)).join("/");
+    return `${this.baseUrl}/jobs/${jobId}/chart-artifacts/${encodedPath}`;
   }
 
   async listJobs(projectId: string): Promise<Job[]> {

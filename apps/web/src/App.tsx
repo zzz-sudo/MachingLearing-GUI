@@ -5,6 +5,7 @@ import type {
   AlgorithmParameter,
   ChartSpec,
   ChartSpecCreate,
+  ChartGenerationResult,
   Asset,
   DatasetColumnSpec,
   DatasetVersion,
@@ -384,14 +385,20 @@ export function App() {
     }
   }
 
-  async function createChart(payload: ChartSpecCreate) {
+  async function createChart(payload: ChartSpecCreate): Promise<ChartSpec> {
     try {
       const chart = await workspaceClient.createChart(selectedProject.id, payload);
       setCharts((current) => [chart, ...current.filter((item) => item.id !== chart.id)]);
       setModelPlanStatus("图形规格已保存到当前工作区");
+      return chart;
     } catch (error: unknown) {
       setImportError(asWorkspaceError(error, "chart_create", "无法保存图形规格"));
+      throw error;
     }
+  }
+
+  async function generateChart(chartId: string): Promise<ChartGenerationResult> {
+    return workspaceClient.generateChart(selectedProject.id, chartId);
   }
 
   function submitPrompt() {
@@ -492,6 +499,8 @@ export function App() {
               onSelectAnalysis={setSelectedAnalysis}
               onCreateModelPlan={createTraining}
               onCreateChart={createChart}
+              onGenerateChart={generateChart}
+              onGetChartResult={workspaceClient.getChartResult.bind(workspaceClient)}
             />
             <CommandDock
               activeMode={activeMode}
@@ -1137,7 +1146,9 @@ type WorkspaceContentProps = {
   onExport: () => void;
   onSelectAnalysis: (analysis: string) => void;
   onCreateModelPlan: (payload: TrainingCreate) => void;
-  onCreateChart: (payload: ChartSpecCreate) => void;
+  onCreateChart: (payload: ChartSpecCreate) => Promise<ChartSpec>;
+  onGenerateChart: (chartId: string) => Promise<ChartGenerationResult>;
+  onGetChartResult: (jobId: string) => Promise<ChartGenerationResult>;
 };
 
 function WorkspaceContent({
@@ -1165,6 +1176,8 @@ function WorkspaceContent({
   onSelectAnalysis,
   onCreateModelPlan,
   onCreateChart,
+  onGenerateChart,
+  onGetChartResult,
 }: WorkspaceContentProps) {
   const numericColumnCount =
     preview?.columns.filter((column) =>
@@ -1199,7 +1212,7 @@ function WorkspaceContent({
   }
 
   if (activeRail === "charts") {
-    return <ChartWorkspace dataset={dataset} preview={preview} charts={charts} onCreateChart={onCreateChart} />;
+    return <ChartWorkspace dataset={dataset} preview={preview} charts={charts} onCreateChart={onCreateChart} onGenerateChart={onGenerateChart} onGetChartResult={onGetChartResult} />;
   }
 
   if (activeRail === "jobs") {

@@ -14,6 +14,7 @@ from app.routes import router
 from app.settings import resolve_data_dir
 from app.storage import WorkspaceStore
 from app.training import TrainingService
+from app.visualization.service import VisualizationService
 
 
 def create_app(data_dir: Path | None = None) -> FastAPI:
@@ -28,6 +29,7 @@ def create_app(data_dir: Path | None = None) -> FastAPI:
         store.initialize()
         application.state.workspace_store = store
         application.state.training_service = TrainingService(store)
+        application.state.visualization_service = VisualizationService(store)
         yield
 
     application = FastAPI(

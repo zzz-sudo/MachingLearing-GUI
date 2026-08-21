@@ -34,6 +34,10 @@ training = [
   "statsmodels>=0.14,<1.0",
   "xgboost>=3.0,<4.0"
 ]
+visualization = [
+  "matplotlib>=3.9,<4.0",
+  "pyecharts>=2.0,<3.0"
+]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]

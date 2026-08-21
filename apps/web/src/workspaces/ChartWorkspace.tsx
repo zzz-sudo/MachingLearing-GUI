@@ -1,25 +1,29 @@
 import { useEffect, useState } from "react";
 import { BarChart3 } from "lucide-react";
-import type { ChartSpec, ChartSpecCreate, DatasetVersion, TablePreview } from "@ml-gui/contracts";
+import type { ChartGenerationResult, ChartSpec, ChartSpecCreate, DatasetVersion, TablePreview } from "@ml-gui/contracts";
 
 type ChartWorkspaceProps = {
   dataset: DatasetVersion | null;
   preview: TablePreview | null;
   charts: ChartSpec[];
-  onCreateChart: (payload: ChartSpecCreate) => void;
+  onCreateChart: (payload: ChartSpecCreate) => Promise<ChartSpec>;
+  onGenerateChart: (chartId: string) => Promise<ChartGenerationResult>;
+  onGetChartResult: (jobId: string) => Promise<ChartGenerationResult>;
 };
 
 function ChartProperty({ label, value }: { label: string; value: string }) {
   return <div className="property-row"><span>{label}</span><strong>{value}</strong></div>;
 }
 
-export function ChartWorkspace({ dataset, preview, charts, onCreateChart }: ChartWorkspaceProps) {
+export function ChartWorkspace({ dataset, preview, charts, onCreateChart, onGenerateChart, onGetChartResult }: ChartWorkspaceProps) {
   const columns = dataset?.columns ?? [];
   const numericColumns = columns.filter((column) => ["integer", "number"].includes(column.dataType));
   const [name, setName] = useState("数据分布图");
   const [chartType, setChartType] = useState<ChartSpecCreate["chartType"]>("scatter");
   const [xColumn, setXColumn] = useState("");
   const [yColumn, setYColumn] = useState("");
+  const [generation, setGeneration] = useState<ChartGenerationResult | null>(null);
+  const [generating, setGenerating] = useState(false);
 
   useEffect(() => {
     setXColumn((current) => current || numericColumns[0]?.name || columns[0]?.name || "");
@@ -29,6 +33,34 @@ export function ChartWorkspace({ dataset, preview, charts, onCreateChart }: Char
   const rows = preview?.rows ?? [];
   const values = rows.map((row) => Number(row[yColumn])).filter((value) => Number.isFinite(value)).slice(0, 24);
   const maxValue = Math.max(...values, 1);
+
+  async function saveAndGenerate() {
+    const chart = await onCreateChart({ name: name.trim(), chartType, datasetId: dataset!.id, xColumn, yColumns: [yColumn], options: { theme: "light", showLegend: true } });
+    setGenerating(true);
+    try {
+      const queued = await onGenerateChart(chart.id);
+      setGeneration(queued);
+      if (queued.status === "queued" || queued.status === "running") {
+        const timer = window.setInterval(() => {
+          void onGetChartResult(queued.jobId).then((result) => {
+            setGeneration(result);
+            if (["succeeded", "failed", "cancelled"].includes(result.status)) {
+              window.clearInterval(timer);
+              setGenerating(false);
+            }
+          }).catch(() => undefined);
+        }, 1000);
+        window.setTimeout(() => {
+          window.clearInterval(timer);
+          setGenerating(false);
+        }, 3600000);
+      } else {
+        setGenerating(false);
+      }
+    } catch {
+      setGenerating(false);
+    }
+  }
 
   return (
     <div className="workspace-scroll chart-workspace">
@@ -49,7 +81,8 @@ export function ChartWorkspace({ dataset, preview, charts, onCreateChart }: Char
             <label><span>X 轴</span><select value={xColumn} onChange={(event) => setXColumn(event.target.value)}><option value="">请选择字段</option>{columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
             <label><span>Y 轴</span><select value={yColumn} onChange={(event) => setYColumn(event.target.value)}><option value="">请选择字段</option>{numericColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
             <div className="chart-source-summary"><ChartProperty label="数据集" value={dataset ? `v${dataset.version}` : "未选择"} /><ChartProperty label="来源字段" value={`${xColumn || "未选择"} / ${yColumn || "未选择"}`} /><ChartProperty label="预览记录" value={String(rows.length)} /></div>
-            <button className="primary-button" disabled={!dataset || !xColumn || !yColumn || !name.trim()} type="button" onClick={() => onCreateChart({ name: name.trim(), chartType, datasetId: dataset!.id, xColumn, yColumns: [yColumn], options: { theme: "light", showLegend: true } })}><BarChart3 aria-hidden="true" size={15} />保存图形规格</button>
+            <button className="primary-button" disabled={generating || !dataset || !xColumn || !yColumn || !name.trim()} type="button" onClick={() => void saveAndGenerate()}><BarChart3 aria-hidden="true" size={15} />{generating ? "正在生成" : "保存并生成图形"}</button>
+            {generation ? <div className="chart-generation-state"><ChartProperty label="任务状态" value={generation.status} />{generation.warnings.map((warning) => <p key={warning}>{warning}</p>)}{generation.artifacts.map((artifact) => <code key={artifact.relativePath}>{artifact.format}: {artifact.relativePath}</code>)}</div> : null}
           </div>
         </section>
       </div>
