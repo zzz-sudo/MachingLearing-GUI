@@ -256,7 +256,7 @@ def test_algorithm_catalog_exposes_stable_capabilities(tmp_path: Path) -> None:
     assert algorithms["factorial_anova"]["requiresFactors"] is True
     assert algorithms["lstm_regressor"]["requiresTime"] is True
     assert all("status" in item and "chartTemplates" in item for item in catalog["algorithms"])
-    assert any(item["status"] == "planned" for item in catalog["algorithms"])
+    assert all(item["status"] == "available" for item in catalog["algorithms"])
     parameter_ids = {item["id"] for item in algorithms["lstm_regressor"]["parameters"]}
     assert {"window_size", "hidden_size", "epochs"} <= parameter_ids
 

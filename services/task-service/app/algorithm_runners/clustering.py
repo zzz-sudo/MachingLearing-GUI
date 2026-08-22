@@ -13,6 +13,8 @@ from sklearn.cluster import (
     HDBSCAN,
     KMeans,
     MiniBatchKMeans,
+    OPTICS,
+    SpectralClustering,
 )
 from sklearn.metrics import calinski_harabasz_score, davies_bouldin_score, silhouette_score
 from sklearn.mixture import GaussianMixture
@@ -33,6 +35,10 @@ CLUSTERING_ALGORITHM_IDS = {
     "hdbscan",
     "gaussian_mixture",
     "birch",
+    "optics",
+    "spectral_clustering",
+    "kmedoids",
+    "fuzzy_cmeans",
 }
 
 
@@ -55,7 +61,46 @@ def _build_model(
         return GaussianMixture(n_components=int(parameters["n_components"]), random_state=seed, reg_covar=1e-6)
     if algorithm_id == "birch":
         return Birch(n_clusters=int(parameters["n_clusters"]))
+    if algorithm_id == "optics":
+        return OPTICS(min_samples=int(parameters.get("min_samples", 5)), n_jobs=-1)
+    if algorithm_id == "spectral_clustering":
+        return SpectralClustering(n_clusters=int(parameters["n_clusters"]), random_state=seed, assign_labels="kmeans")
     raise ValueError(f"聚类 Runner 不支持算法: {algorithm_id}")
+
+
+def _kmedoids_labels(values: np.ndarray, clusters: int, seed: int) -> np.ndarray:
+    """Use a deterministic PAM-style swap loop without adding scikit-learn-extra."""
+    rng = np.random.default_rng(seed)
+    medoids = rng.choice(len(values), size=clusters, replace=False)
+    distances = np.linalg.norm(values[:, None, :] - values[None, :, :], axis=2)
+    for _ in range(30):
+        labels = np.argmin(distances[:, medoids], axis=1)
+        changed = False
+        for group in range(clusters):
+            members = np.flatnonzero(labels == group)
+            if len(members) == 0:
+                continue
+            candidate = members[np.argmin(distances[np.ix_(members, members)].sum(axis=1))]
+            if medoids[group] != candidate:
+                medoids[group] = candidate
+                changed = True
+        if not changed:
+            break
+    return np.argmin(distances[:, medoids], axis=1).astype(np.int64)
+
+
+def _fuzzy_labels(values: np.ndarray, clusters: int, seed: int) -> np.ndarray:
+    """Approximate fuzzy memberships with a softmax distance assignment."""
+    rng = np.random.default_rng(seed)
+    centers = values[rng.choice(len(values), size=clusters, replace=False)].copy()
+    for _ in range(40):
+        distance = np.linalg.norm(values[:, None, :] - centers[None, :, :], axis=2) + 1e-8
+        memberships = (1.0 / distance) / (1.0 / distance).sum(axis=1, keepdims=True)
+        next_centers = (memberships.T @ values) / memberships.sum(axis=0)[:, None]
+        if np.allclose(centers, next_centers, atol=1e-5):
+            break
+        centers = next_centers
+    return np.argmax(memberships, axis=1).astype(np.int64)
 
 
 def _cluster_metrics(values: np.ndarray, labels: np.ndarray) -> tuple[dict[str, float], list[str]]:
@@ -99,8 +144,16 @@ def run_clustering(config: dict[str, Any]) -> dict[str, Any]:
     requested_clusters = parameters.get("n_clusters", parameters.get("n_components"))
     if isinstance(requested_clusters, int) and requested_clusters >= len(values):
         raise ValueError("聚类数量必须小于样本数量")
-    model = _build_model(algorithm_id, parameters, int(config["randomSeed"]))
-    labels = np.asarray(model.fit_predict(values), dtype=np.int64)
+    seed = int(config["randomSeed"])
+    if algorithm_id == "kmedoids":
+        labels = _kmedoids_labels(values, int(parameters["n_clusters"]), seed)
+        model = None
+    elif algorithm_id == "fuzzy_cmeans":
+        labels = _fuzzy_labels(values, int(parameters["n_clusters"]), seed)
+        model = None
+    else:
+        model = _build_model(algorithm_id, parameters, seed)
+        labels = np.asarray(model.fit_predict(values), dtype=np.int64)
     metrics, warnings = _cluster_metrics(values, labels)
 
     counts = Counter(int(label) for label in labels)
@@ -120,7 +173,7 @@ def run_clustering(config: dict[str, Any]) -> dict[str, Any]:
 
     artifact_directory = Path(config["artifactDirectory"])
     artifact = artifact_directory / "model.joblib"
-    supports_prediction = hasattr(model, "predict")
+    supports_prediction = model is not None and hasattr(model, "predict")
     joblib.dump(
         {
             "algorithmId": algorithm_id,

@@ -20,6 +20,10 @@ from algorithm_runners import (
     ANOVA_ALGORITHM_IDS,
     SEQUENCE_ALGORITHM_IDS,
     SUPERVISED_ALGORITHM_IDS,
+    HYPOTHESIS_ALGORITHM_IDS,
+    EXPLORATION_ALGORITHM_IDS,
+    run_hypothesis,
+    run_exploration,
     run_clustering,
     run_anova,
     run_sequence,
@@ -48,6 +52,10 @@ def run(config: dict[str, Any]) -> dict[str, Any]:
         return run_anova(config)
     if config.get("algorithmId") in SEQUENCE_ALGORITHM_IDS:
         return run_sequence(config)
+    if config.get("algorithmId") in HYPOTHESIS_ALGORITHM_IDS:
+        return run_hypothesis(config)
+    if config.get("algorithmId") in EXPLORATION_ALGORITHM_IDS:
+        return run_exploration(config)
 
     dataset = parquet.read_table(config["datasetPath"]).to_pandas()
     method = config["method"]

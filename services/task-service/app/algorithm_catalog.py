@@ -76,6 +76,28 @@ SEQUENCE_PARAMETERS = [
     number_parameter("learning_rate", "学习率", 0.001, 0.000001, 1.0, "优化器更新参数的步长", 0.0001),
 ]
 
+REGULARIZATION_PARAMETERS = [
+    number_parameter("alpha", "正则强度", 1.0, 0.000001, 10000.0, "正则化强度", 0.1),
+]
+
+ELASTIC_NET_PARAMETERS = [
+    number_parameter("alpha", "正则强度", 1.0, 0.000001, 10000.0, "正则化强度", 0.1),
+    number_parameter("l1_ratio", "L1 比例", 0.5, 0.0, 1.0, "L1 与 L2 正则化的混合比例", 0.05),
+]
+
+HUBER_PARAMETERS = [
+    number_parameter("epsilon", "稳健阈值", 1.35, 1.01, 10.0, "残差进入线性损失的阈值", 0.05),
+]
+
+QUANTILE_PARAMETERS = [
+    number_parameter("quantile", "目标分位数", 0.5, 0.01, 0.99, "需要估计的条件分位数", 0.01),
+    number_parameter("alpha", "正则强度", 1.0, 0.0, 10000.0, "正则化强度", 0.1),
+]
+
+TEST_PARAMETERS = [
+    number_parameter("population_mean", "总体均值", 0.0, -1_000_000.0, 1_000_000.0, "单样本检验的理论均值", 0.1),
+]
+
 
 def _definition(
     algorithm_id: str,
@@ -141,37 +163,37 @@ ALGORITHMS = [
     _definition("gru_classifier", "GRU 序列分类", "sequence_classification", "循环神经网络", "使用门控循环单元预测序列类别", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
 
     # Planned algorithms keep the catalog complete while the UI prevents unsupported execution.
-    _definition("knn_classifier", "K 近邻分类", "classification", "邻近模型", "根据邻近样本完成分类", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
-    _definition("naive_bayes_classifier", "朴素贝叶斯分类", "classification", "概率模型", "基于条件独立假设完成分类", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
-    _definition("svm_classifier", "支持向量机分类", "classification", "核方法", "使用最大间隔分类超平面", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
-    _definition("linear_discriminant_classifier", "线性判别分析", "classification", "判别分析", "在类间和类内方差之间寻找判别方向", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
-    _definition("quadratic_discriminant_classifier", "二次判别分析", "classification", "判别分析", "使用每个类别独立协方差矩阵完成分类", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
-    _definition("gradient_boosting_classifier", "梯度提升分类", "classification", "梯度提升", "通过逐步拟合残差完成分类", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["confusion_matrix", "feature_importance"]),
-    _definition("elastic_net_regressor", "ElasticNet 回归", "regression", "线性模型", "结合 L1 和 L2 正则化的回归", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "residual"]),
-    _definition("lasso_regressor", "Lasso 回归", "regression", "线性模型", "使用 L1 正则化筛选特征", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "residual", "feature_importance"]),
-    _definition("huber_regressor", "Huber 回归", "regression", "稳健回归", "降低异常值对回归结果的影响", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "residual"]),
-    _definition("svm_regressor", "支持向量回归", "regression", "核方法", "使用间隔损失预测连续目标", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "residual"]),
-    _definition("decision_tree_regressor", "决策树回归", "regression", "树模型", "使用单棵决策树预测连续目标", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "feature_importance"]),
-    _definition("gradient_boosting_regressor", "梯度提升回归", "regression", "梯度提升", "通过逐步拟合残差预测连续目标", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "residual", "feature_importance"]),
-    _definition("knn_regressor", "K 近邻回归", "regression", "邻近模型", "根据邻近样本预测连续值", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "residual"]),
-    _definition("bagging_regressor", "Bagging 回归", "regression", "集成学习", "通过自助采样集成多个基学习器", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "feature_importance"]),
-    _definition("lightgbm_regressor", "LightGBM 回归", "regression", "梯度提升", "面向大规模表格数据的梯度提升回归", requires_target=True, status="planned", dependencies=["lightgbm"], chart_templates=["scatter", "residual", "feature_importance"]),
-    _definition("poisson_regressor", "Poisson 回归", "regression", "广义线性模型", "适合计数目标的广义线性回归", requires_target=True, status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "residual"]),
-    _definition("quantile_regressor", "分位数回归", "regression", "稳健统计", "估计条件分位数和预测区间", requires_target=True, status="planned", dependencies=["statsmodels"], chart_templates=["scatter", "residual"]),
-    _definition("kmedoids", "K-Medoids", "clustering", "中心点聚类", "使用真实样本作为聚类中心", status="planned", dependencies=["scikit-learn-extra"], chart_templates=["cluster_scatter", "heatmap"]),
-    _definition("fuzzy_cmeans", "Fuzzy C-Means", "clustering", "软聚类", "为样本分配多个聚类隶属度", status="planned", dependencies=["scikit-fuzzy"], chart_templates=["cluster_scatter", "heatmap"]),
-    _definition("optics", "OPTICS", "clustering", "密度聚类", "从多种密度尺度提取聚类结构", status="planned", dependencies=["scikit-learn"], chart_templates=["cluster_scatter"]),
-    _definition("spectral_clustering", "谱聚类", "clustering", "图聚类", "基于相似度图的聚类方法", status="planned", dependencies=["scikit-learn"], chart_templates=["cluster_scatter"]),
-    _definition("one_sample_t_test", "单样本 t 检验", "hypothesis_test", "假设检验", "检验样本均值是否等于给定值", requires_target=True, status="planned", dependencies=["scipy"], chart_templates=["boxplot"]),
-    _definition("independent_t_test", "独立样本 t 检验", "hypothesis_test", "假设检验", "比较两个独立样本的均值", requires_target=True, requires_factors=True, status="planned", dependencies=["scipy"], chart_templates=["boxplot"]),
-    _definition("paired_t_test", "配对样本 t 检验", "hypothesis_test", "假设检验", "比较配对样本的均值差异", requires_target=True, status="planned", dependencies=["scipy"], chart_templates=["boxplot"]),
-    _definition("chi_square_test", "卡方独立性检验", "hypothesis_test", "假设检验", "检验两个分类变量是否独立", requires_factors=True, status="planned", dependencies=["scipy"], chart_templates=["heatmap"]),
-    _definition("pca", "主成分分析", "dimensionality_reduction", "降维分析", "提取数值特征的主要变化方向", status="planned", dependencies=["scikit-learn"], chart_templates=["scatter", "heatmap"]),
-    _definition("tsne", "t-SNE", "dimensionality_reduction", "降维分析", "用于探索高维样本局部结构", status="planned", dependencies=["scikit-learn"], chart_templates=["scatter"]),
-    _definition("truncated_svd", "Truncated SVD", "dimensionality_reduction", "降维分析", "对稀疏或高维矩阵进行截断奇异值分解", status="planned", dependencies=["scikit-learn"], chart_templates=["scatter"]),
-    _definition("umap", "UMAP", "dimensionality_reduction", "降维分析", "保持局部结构的非线性降维方法", status="planned", dependencies=["umap-learn"], chart_templates=["scatter"]),
-    _definition("missing_value_profile", "缺失值分析", "exploration", "数据探索", "统计每个字段的缺失情况", status="planned", dependencies=["pandas"], chart_templates=["bar", "heatmap"]),
-    _definition("correlation_profile", "相关性分析", "exploration", "数据探索", "计算数值字段之间的相关关系", status="planned", dependencies=["pandas"], chart_templates=["heatmap"]),
+    _definition("knn_classifier", "K 近邻分类", "classification", "邻近模型", "根据邻近样本完成分类", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
+    _definition("naive_bayes_classifier", "朴素贝叶斯分类", "classification", "概率模型", "基于条件独立假设完成分类", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
+    _definition("svm_classifier", "支持向量机分类", "classification", "核方法", "使用最大间隔分类超平面", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
+    _definition("linear_discriminant_classifier", "线性判别分析", "classification", "判别分析", "在类间和类内方差之间寻找判别方向", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
+    _definition("quadratic_discriminant_classifier", "二次判别分析", "classification", "判别分析", "使用每个类别独立协方差矩阵完成分类", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
+    _definition("gradient_boosting_classifier", "梯度提升分类", "classification", "梯度提升", "通过逐步拟合残差完成分类", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix", "feature_importance"]),
+    _definition("elastic_net_regressor", "ElasticNet 回归", "regression", "线性模型", "结合 L1 和 L2 正则化的回归", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual"], parameters=ELASTIC_NET_PARAMETERS),
+    _definition("lasso_regressor", "Lasso 回归", "regression", "线性模型", "使用 L1 正则化筛选特征", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual", "feature_importance"], parameters=REGULARIZATION_PARAMETERS),
+    _definition("huber_regressor", "Huber 回归", "regression", "稳健回归", "降低异常值对回归结果的影响", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual"], parameters=HUBER_PARAMETERS),
+    _definition("svm_regressor", "支持向量回归", "regression", "核方法", "使用间隔损失预测连续目标", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual"]),
+    _definition("decision_tree_regressor", "决策树回归", "regression", "树模型", "使用单棵决策树预测连续目标", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "feature_importance"], parameters=[TREE_PARAMETERS[1]]),
+    _definition("gradient_boosting_regressor", "梯度提升回归", "regression", "梯度提升", "通过逐步拟合残差预测连续目标", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual", "feature_importance"]),
+    _definition("knn_regressor", "K 近邻回归", "regression", "邻近模型", "根据邻近样本预测连续值", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual"]),
+    _definition("bagging_regressor", "Bagging 回归", "regression", "集成学习", "通过自助采样集成多个基学习器", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "feature_importance"]),
+    _definition("lightgbm_regressor", "LightGBM 回归", "regression", "梯度提升", "面向大规模表格数据的梯度提升回归", requires_target=True, dependencies=["lightgbm"], chart_templates=["scatter", "residual", "feature_importance"]),
+    _definition("poisson_regressor", "Poisson 回归", "regression", "广义线性模型", "适合计数目标的广义线性回归", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual"], parameters=REGULARIZATION_PARAMETERS),
+    _definition("quantile_regressor", "分位数回归", "regression", "稳健统计", "估计条件分位数和预测区间", requires_target=True, dependencies=["scikit-learn"], chart_templates=["scatter", "residual"], parameters=QUANTILE_PARAMETERS),
+    _definition("kmedoids", "K-Medoids", "clustering", "中心点聚类", "使用真实样本作为聚类中心", dependencies=["numpy"], chart_templates=["cluster_scatter", "heatmap"], parameters=CLUSTER_COUNT),
+    _definition("fuzzy_cmeans", "Fuzzy C-Means", "clustering", "软聚类", "为样本分配多个聚类隶属度", dependencies=["numpy"], chart_templates=["cluster_scatter", "heatmap"], parameters=CLUSTER_COUNT),
+    _definition("optics", "OPTICS", "clustering", "密度聚类", "从多种密度尺度提取聚类结构", dependencies=["scikit-learn"], chart_templates=["cluster_scatter"], parameters=DENSITY_PARAMETERS),
+    _definition("spectral_clustering", "谱聚类", "clustering", "图聚类", "基于相似度图的聚类方法", dependencies=["scikit-learn"], chart_templates=["cluster_scatter"], parameters=CLUSTER_COUNT),
+    _definition("one_sample_t_test", "单样本 t 检验", "hypothesis_test", "假设检验", "检验样本均值是否等于给定值", requires_target=True, dependencies=["scipy"], chart_templates=["boxplot"], parameters=TEST_PARAMETERS),
+    _definition("independent_t_test", "独立样本 t 检验", "hypothesis_test", "假设检验", "比较两个独立样本的均值", requires_target=True, requires_factors=True, dependencies=["scipy"], chart_templates=["boxplot"]),
+    _definition("paired_t_test", "配对样本 t 检验", "hypothesis_test", "假设检验", "比较配对样本的均值差异", requires_target=True, dependencies=["scipy"], chart_templates=["boxplot"]),
+    _definition("chi_square_test", "卡方独立性检验", "hypothesis_test", "假设检验", "检验两个分类变量是否独立", requires_factors=True, dependencies=["scipy"], chart_templates=["heatmap"]),
+    _definition("pca", "主成分分析", "dimensionality_reduction", "降维分析", "提取数值特征的主要变化方向", dependencies=["scikit-learn"], chart_templates=["scatter", "heatmap"]),
+    _definition("tsne", "t-SNE", "dimensionality_reduction", "降维分析", "用于探索高维样本局部结构", dependencies=["scikit-learn"], chart_templates=["scatter"]),
+    _definition("truncated_svd", "Truncated SVD", "dimensionality_reduction", "降维分析", "对稀疏或高维矩阵进行截断奇异值分解", dependencies=["scikit-learn"], chart_templates=["scatter"]),
+    _definition("umap", "UMAP", "dimensionality_reduction", "降维分析", "保持局部结构的非线性降维方法", dependencies=["umap-learn"], chart_templates=["scatter"]),
+    _definition("missing_value_profile", "缺失值分析", "exploration", "数据探索", "统计每个字段的缺失情况", dependencies=["pandas"], chart_templates=["bar", "heatmap"]),
+    _definition("correlation_profile", "相关性分析", "exploration", "数据探索", "计算数值字段之间的相关关系", dependencies=["pandas"], chart_templates=["heatmap"]),
 ]
 
 ALGORITHM_BY_ID = {algorithm.id: algorithm for algorithm in ALGORITHMS}

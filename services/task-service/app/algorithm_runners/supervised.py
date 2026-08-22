@@ -7,14 +7,17 @@ from typing import Any
 import joblib
 import numpy as np
 from sklearn.ensemble import (
+    BaggingRegressor,
     ExtraTreesClassifier,
     ExtraTreesRegressor,
+    GradientBoostingClassifier,
+    GradientBoostingRegressor,
     HistGradientBoostingClassifier,
     HistGradientBoostingRegressor,
     RandomForestClassifier,
     RandomForestRegressor,
 )
-from sklearn.linear_model import LinearRegression, LogisticRegression, Ridge
+from sklearn.linear_model import ElasticNet, HuberRegressor, Lasso, LinearRegression, LogisticRegression, PoissonRegressor, QuantileRegressor, Ridge
 from sklearn.metrics import (
     accuracy_score,
     balanced_accuracy_score,
@@ -28,9 +31,12 @@ from sklearn.metrics import (
     recall_score,
 )
 from sklearn.model_selection import train_test_split
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import LabelEncoder
-from sklearn.tree import DecisionTreeClassifier
+from sklearn.svm import SVC, SVR
+from sklearn.tree import DecisionTreeClassifier, DecisionTreeRegressor
+from sklearn.discriminant_analysis import LinearDiscriminantAnalysis, QuadraticDiscriminantAnalysis
 
 from .common import (
     artifact_relative_path,
@@ -47,6 +53,12 @@ CLASSIFICATION_ALGORITHMS = {
     "extra_trees_classifier",
     "hist_gradient_boosting_classifier",
     "xgboost_classifier",
+    "knn_classifier",
+    "naive_bayes_classifier",
+    "svm_classifier",
+    "linear_discriminant_classifier",
+    "quadratic_discriminant_classifier",
+    "gradient_boosting_classifier",
 }
 
 REGRESSION_ALGORITHMS = {
@@ -56,6 +68,17 @@ REGRESSION_ALGORITHMS = {
     "extra_trees_regressor",
     "hist_gradient_boosting_regressor",
     "xgboost_regressor",
+    "elastic_net_regressor",
+    "lasso_regressor",
+    "huber_regressor",
+    "svm_regressor",
+    "decision_tree_regressor",
+    "gradient_boosting_regressor",
+    "knn_regressor",
+    "bagging_regressor",
+    "lightgbm_regressor",
+    "poisson_regressor",
+    "quantile_regressor",
 }
 
 SUPERVISED_ALGORITHM_IDS = CLASSIFICATION_ALGORITHMS | REGRESSION_ALGORITHMS
@@ -93,6 +116,20 @@ def _build_estimator(
         return ExtraTreesClassifier(n_estimators=int(parameters["n_estimators"]), max_depth=int(parameters["max_depth"]), random_state=seed, n_jobs=-1)
     if algorithm_id == "hist_gradient_boosting_classifier":
         return HistGradientBoostingClassifier(random_state=seed)
+    if algorithm_id == "knn_classifier":
+        return KNeighborsClassifier(n_neighbors=5, n_jobs=-1)
+    if algorithm_id == "naive_bayes_classifier":
+        from sklearn.naive_bayes import GaussianNB
+
+        return GaussianNB()
+    if algorithm_id == "svm_classifier":
+        return SVC(kernel="rbf", probability=True, random_state=seed)
+    if algorithm_id == "linear_discriminant_classifier":
+        return LinearDiscriminantAnalysis()
+    if algorithm_id == "quadratic_discriminant_classifier":
+        return QuadraticDiscriminantAnalysis(reg_param=0.05)
+    if algorithm_id == "gradient_boosting_classifier":
+        return GradientBoostingClassifier(random_state=seed)
     if algorithm_id == "linear_regression":
         return LinearRegression(n_jobs=-1)
     if algorithm_id == "ridge_regression":
@@ -103,6 +140,30 @@ def _build_estimator(
         return ExtraTreesRegressor(n_estimators=int(parameters["n_estimators"]), max_depth=int(parameters["max_depth"]), random_state=seed, n_jobs=-1)
     if algorithm_id == "hist_gradient_boosting_regressor":
         return HistGradientBoostingRegressor(random_state=seed)
+    if algorithm_id == "elastic_net_regressor":
+        return ElasticNet(alpha=float(parameters.get("alpha", 1.0)), l1_ratio=float(parameters.get("l1_ratio", 0.5)), random_state=seed)
+    if algorithm_id == "lasso_regressor":
+        return Lasso(alpha=float(parameters.get("alpha", 1.0)), random_state=seed)
+    if algorithm_id == "huber_regressor":
+        return HuberRegressor(epsilon=float(parameters.get("epsilon", 1.35)), max_iter=2000)
+    if algorithm_id == "svm_regressor":
+        return SVR(kernel="rbf")
+    if algorithm_id == "decision_tree_regressor":
+        return DecisionTreeRegressor(max_depth=int(parameters.get("max_depth", 8)), random_state=seed)
+    if algorithm_id == "gradient_boosting_regressor":
+        return GradientBoostingRegressor(random_state=seed)
+    if algorithm_id == "knn_regressor":
+        return KNeighborsRegressor(n_neighbors=5, n_jobs=-1)
+    if algorithm_id == "bagging_regressor":
+        return BaggingRegressor(estimator=DecisionTreeRegressor(max_depth=8, random_state=seed), n_estimators=100, random_state=seed, n_jobs=-1)
+    if algorithm_id == "lightgbm_regressor":
+        import lightgbm
+
+        return lightgbm.LGBMRegressor(n_estimators=200, learning_rate=0.05, random_state=seed, verbosity=-1, n_jobs=-1)
+    if algorithm_id == "poisson_regressor":
+        return PoissonRegressor(alpha=float(parameters.get("alpha", 1.0)), max_iter=2000)
+    if algorithm_id == "quantile_regressor":
+        return QuantileRegressor(quantile=float(parameters.get("quantile", 0.5)), alpha=float(parameters.get("alpha", 1.0)), solver="highs")
     if algorithm_id in {"xgboost_classifier", "xgboost_regressor"}:
         import xgboost
 
