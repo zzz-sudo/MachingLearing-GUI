@@ -43,13 +43,20 @@ def run_hypothesis(config: dict[str, Any]) -> dict[str, Any]:
             statistic, p_value = ttest_ind(grouped[0], grouped[1], equal_var=False)
             groups = [str(value) for value in frame[factors[0]].dropna().unique()]
         else:
-            if len(factors) != 1 or factors[0] not in frame.columns:
-                raise ValueError("配对样本 t 检验需要一个配对标识字段")
-            paired = frame[[factors[0], target]].dropna().pivot(columns=factors[0], values=target)
-            if paired.shape[1] != 2:
-                raise ValueError("配对样本 t 检验必须正好包含两个配对值")
-            statistic, p_value = ttest_rel(paired.iloc[:, 0], paired.iloc[:, 1], nan_policy="omit")
-            groups = [str(value) for value in paired.columns]
+            pair_columns = [target, *[str(value) for value in config.get("featureColumns") or []]]
+            numeric_pairs = [column for column in pair_columns if column in frame.columns and pd.api.types.is_numeric_dtype(frame[column])]
+            if len(numeric_pairs) >= 2:
+                paired_frame = frame[numeric_pairs[:2]].dropna()
+                statistic, p_value = ttest_rel(paired_frame.iloc[:, 0], paired_frame.iloc[:, 1], nan_policy="omit")
+                groups = [str(value) for value in numeric_pairs[:2]]
+            elif len(factors) == 1 and factors[0] in frame.columns:
+                paired = frame[[factors[0], target]].dropna().pivot(columns=factors[0], values=target)
+                if paired.shape[1] != 2:
+                    raise ValueError("配对样本 t 检验必须正好包含两个配对值")
+                statistic, p_value = ttest_rel(paired.iloc[:, 0], paired.iloc[:, 1], nan_policy="omit")
+                groups = [str(value) for value in paired.columns]
+            else:
+                raise ValueError("配对样本 t 检验需要目标字段和另一个数值配对字段")
         metrics = {"statistic": float(statistic), "p_value": float(p_value), "samples": float(len(values))}
         tables = {"summary": [{"target": target, "groups": ", ".join(groups), "mean": float(np.mean(values)), "std": float(np.std(values, ddof=1)) if len(values) > 1 else 0.0}]}
 

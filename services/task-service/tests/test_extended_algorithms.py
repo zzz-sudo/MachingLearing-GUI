@@ -65,8 +65,10 @@ def test_extended_clustering_and_statistics_execute(tmp_path: Path) -> None:
         result = run_clustering(config(tmp_path, dataset, algorithm_id, "clustering", featureColumns=["x", "y"], parameters={"n_clusters": 3, "min_samples": 3}))
         assert result["status"] == "succeeded", algorithm_id
     one_sample = run_hypothesis(config(tmp_path, dataset, "one_sample_t_test", "hypothesis_test", targetColumn="value", parameters={"population_mean": 0}))
+    paired = run_hypothesis(config(tmp_path, dataset, "paired_t_test", "hypothesis_test", targetColumn="value", featureColumns=["x"]))
     chi_square = run_hypothesis(config(tmp_path, dataset, "chi_square_test", "hypothesis_test", factorColumns=["group", "target"]))
     assert one_sample["status"] == "succeeded"
+    assert paired["status"] == "succeeded"
     assert chi_square["status"] == "succeeded"
 
 

@@ -162,7 +162,7 @@ ALGORITHMS = [
     _definition("lstm_classifier", "LSTM 序列分类", "sequence_classification", "循环神经网络", "使用长短期记忆单元预测序列类别", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
     _definition("gru_classifier", "GRU 序列分类", "sequence_classification", "循环神经网络", "使用门控循环单元预测序列类别", requires_target=True, requires_time=True, supports_gpu=True, parameters=SEQUENCE_PARAMETERS),
 
-    # Planned algorithms keep the catalog complete while the UI prevents unsupported execution.
+    # Extended algorithms share the same worker contracts as the core catalog.
     _definition("knn_classifier", "K 近邻分类", "classification", "邻近模型", "根据邻近样本完成分类", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
     _definition("naive_bayes_classifier", "朴素贝叶斯分类", "classification", "概率模型", "基于条件独立假设完成分类", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
     _definition("svm_classifier", "支持向量机分类", "classification", "核方法", "使用最大间隔分类超平面", requires_target=True, dependencies=["scikit-learn"], chart_templates=["confusion_matrix"]),
