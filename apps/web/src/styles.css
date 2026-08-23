@@ -430,6 +430,61 @@ textarea:focus-visible {
   padding: 4px 7px;
 }
 
+.analysis-tree {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 4px 6px 10px;
+}
+
+.analysis-tree-group,
+.analysis-tree-family {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.analysis-tree-family {
+  margin-left: 12px;
+  padding-left: 8px;
+  border-left: 1px solid var(--line);
+}
+
+.analysis-tree-node {
+  display: grid;
+  grid-template-columns: 14px 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 5px;
+  min-height: 30px;
+  padding: 4px 7px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.analysis-tree-node[data-level="1"] {
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.analysis-tree-node:hover {
+  border-color: var(--line);
+  background: var(--surface);
+}
+
+.analysis-tree-node strong {
+  font-size: 11px;
+}
+
+.analysis-tree-node small {
+  color: var(--muted);
+  font-size: 9px;
+}
+
 .analysis-nav-row {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
@@ -442,6 +497,12 @@ textarea:focus-visible {
   background: transparent;
   text-align: left;
   cursor: pointer;
+}
+
+.analysis-nav-row[data-level="2"] {
+  min-height: 40px;
+  margin-left: 8px;
+  padding-left: 8px;
 }
 
 .analysis-nav-row:hover,

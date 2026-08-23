@@ -111,6 +111,39 @@ function algorithmStatusLabel(status: AlgorithmDefinition["status"]) {
   return "可运行";
 }
 
+type AlgorithmFamilyGroup = {
+  id: string;
+  label: string;
+  methods: AlgorithmDefinition[];
+};
+
+type AlgorithmTaskGroup = {
+  id: AlgorithmDefinition["taskType"];
+  label: string;
+  families: AlgorithmFamilyGroup[];
+};
+
+function buildAlgorithmGroups(algorithms: AlgorithmDefinition[], searchText: string): AlgorithmTaskGroup[] {
+  const groups = new Map<AlgorithmDefinition["taskType"], Map<string, AlgorithmDefinition[]>>();
+  const normalized = searchText.trim().toLocaleLowerCase("zh-CN");
+  for (const algorithm of algorithms) {
+    const searchable = `${algorithm.name} ${algorithm.id} ${algorithm.family} ${algorithm.description}`.toLocaleLowerCase("zh-CN");
+    if (normalized && !searchable.includes(normalized)) {
+      continue;
+    }
+    const families = groups.get(algorithm.taskType) ?? new Map<string, AlgorithmDefinition[]>();
+    const methods = families.get(algorithm.family) ?? [];
+    methods.push(algorithm);
+    families.set(algorithm.family, methods);
+    groups.set(algorithm.taskType, families);
+  }
+  return Array.from(groups.entries()).map(([taskType, families]) => ({
+    id: taskType,
+    label: algorithmTaskLabels[taskType],
+    families: Array.from(families.entries()).map(([family, methods]) => ({ id: `${taskType}:${family}`, label: family, methods })),
+  }));
+}
+
 const statusLabels: Record<Job["status"], string> = {
   queued: "排队中",
   running: "运行中",
@@ -759,6 +792,13 @@ function ContextSidebar({
     () => new Set(["", "source", "documents", "datasets"]),
   );
   const normalizedSearch = searchText.trim().toLocaleLowerCase("zh-CN");
+  const algorithmGroups = buildAlgorithmGroups(algorithms, normalizedSearch);
+  const [expandedAlgorithmNodes, setExpandedAlgorithmNodes] = useState<Set<string>>(
+    () => new Set(algorithms.map((algorithm) => algorithm.taskType)),
+  );
+  useEffect(() => {
+    setExpandedAlgorithmNodes((current) => current.size > 0 ? current : new Set(algorithms.map((algorithm) => algorithm.taskType)));
+  }, [algorithms]);
   const visibleTree = normalizedSearch ? filterProjectTree(fileTree, normalizedSearch) : fileTree;
 
   function toggleDirectory(relativePath: string) {
@@ -769,6 +809,15 @@ function ContextSidebar({
       } else {
         next.add(relativePath);
       }
+      return next;
+    });
+  }
+
+  function toggleAlgorithmNode(nodeId: string) {
+    setExpandedAlgorithmNodes((current) => {
+      const next = new Set(current);
+      if (next.has(nodeId)) next.delete(nodeId);
+      else next.add(nodeId);
       return next;
     });
   }
@@ -808,24 +857,29 @@ function ContextSidebar({
       {activeRail === "models" ? (
         <section className="sidebar-section sidebar-fill-section">
           <SectionTitle icon={Box} title="分析方法" />
-          <div className="analysis-nav-list">
-            {algorithms.map((method) => {
-              const Icon = algorithmIcon(method.taskType);
-              return (
-                <button
-                  key={method.id}
-                  className="analysis-nav-row"
-                  data-active={selectedAnalysis === method.id}
-                  data-disabled={method.status === "planned" || method.status === "disabled"}
-                  disabled={method.status === "planned" || method.status === "disabled"}
-                  type="button"
-                  onClick={() => onSelectAnalysis(method.id)}
-                >
-                  <Icon aria-hidden="true" size={16} />
-                  <span><strong>{method.name}</strong><small>{algorithmTaskLabels[method.taskType]} · {algorithmStatusLabel(method.status)}</small></span>
+          <div className="analysis-tree">
+            {algorithmGroups.length === 0 ? <p className="sidebar-empty">没有匹配的分析方法</p> : algorithmGroups.map((taskGroup) => (
+              <div key={taskGroup.id} className="analysis-tree-group">
+                <button className="analysis-tree-node" data-level="0" type="button" onClick={() => toggleAlgorithmNode(taskGroup.id)}>
+                  {expandedAlgorithmNodes.has(taskGroup.id) ? <ChevronDown aria-hidden="true" size={14} /> : <ChevronRight aria-hidden="true" size={14} />}
+                  {(() => { const Icon = algorithmIcon(taskGroup.id); return <Icon aria-hidden="true" size={15} />; })()}
+                  <strong>{taskGroup.label}</strong><small>{taskGroup.families.reduce((total, family) => total + family.methods.length, 0)} 个方法</small>
                 </button>
-              );
-            })}
+                {expandedAlgorithmNodes.has(taskGroup.id) ? taskGroup.families.map((family) => (
+                  <div key={family.id} className="analysis-tree-family">
+                    <button className="analysis-tree-node" data-level="1" type="button" onClick={() => toggleAlgorithmNode(family.id)}>
+                      {expandedAlgorithmNodes.has(family.id) ? <ChevronDown aria-hidden="true" size={13} /> : <ChevronRight aria-hidden="true" size={13} />}
+                      <span>{family.label}</span><small>{family.methods.length}</small>
+                    </button>
+                    {expandedAlgorithmNodes.has(family.id) ? family.methods.map((method) => {
+                      const Icon = algorithmIcon(method.taskType);
+                      const unavailable = method.status === "planned" || method.status === "disabled";
+                      return <button key={method.id} className="analysis-nav-row" data-level="2" data-active={selectedAnalysis === method.id} data-disabled={unavailable} disabled={unavailable} type="button" onClick={() => onSelectAnalysis(method.id)}><Icon aria-hidden="true" size={15} /><span><strong>{method.name}</strong><small>{algorithmStatusLabel(method.status)}</small></span></button>;
+                    }) : null}
+                  </div>
+                )) : null}
+              </div>
+            ))}
           </div>
         </section>
       ) : activeRail === "charts" ? (

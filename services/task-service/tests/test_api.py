@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 import pyarrow.parquet as parquet
 
 from app.main import create_app
+from app.models import ProjectCreate
 
 
 def create_test_client(tmp_path: Path) -> TestClient:
@@ -97,6 +98,19 @@ def test_default_project_uses_repository_workspace(tmp_path: Path, monkeypatch) 
     assert response.status_code == 200
     assert Path(response.json()["path"]).resolve() == expected.resolve()
     assert (expected / "source").is_dir()
+
+
+def test_default_project_ignores_legacy_user_directory(tmp_path: Path) -> None:
+    from app.storage import WorkspaceStore
+
+    expected = Path(__file__).resolve().parents[3] / "workspace" / "default"
+    store = WorkspaceStore(tmp_path / "service-data", default_project_dir=expected)
+    store.initialize()
+    store.create_project(ProjectCreate(name="旧默认项目", path=str(tmp_path / "legacy-project")))
+
+    project = store.get_or_create_default_project()
+
+    assert Path(project.path).resolve() == expected.resolve()
 
 
 def test_health_endpoint(tmp_path: Path) -> None:

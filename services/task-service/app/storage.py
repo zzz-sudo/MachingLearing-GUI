@@ -220,14 +220,18 @@ class WorkspaceStore:
         return [self._project_from_row(row) for row in rows]
 
     def get_or_create_default_project(self) -> ProjectRecord:
-        projects = self.list_projects()
-        if projects:
-            return projects[0]
-
         configured = os.environ.get("ML_GUI_DEFAULT_PROJECT_DIR")
         projects_dir = Path(configured).expanduser().resolve() if configured else (
             self.default_project_dir if self.default_project_dir is not None else self.data_dir / "projects" / "default"
         )
+        projects = self.list_projects()
+        if projects_dir:
+            for project in projects:
+                if Path(project.path).resolve() == projects_dir:
+                    return project
+        else:
+            if projects:
+                return projects[0]
         projects_dir.parent.mkdir(parents=True, exist_ok=True)
         if projects_dir.exists() and (projects_dir / "project.json").is_file():
             document = json.loads((projects_dir / "project.json").read_text(encoding="utf-8"))
