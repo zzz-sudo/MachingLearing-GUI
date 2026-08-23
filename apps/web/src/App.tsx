@@ -260,12 +260,15 @@ export function App() {
     if (!projectReady) {
       return;
     }
-    void workspaceClient
+    const refreshFileTree = () => void workspaceClient
       .getProjectTree(selectedProject.id, showHidden)
       .then(setFileTree)
       .catch((error: unknown) => {
         setServiceError(error instanceof Error ? error.message : "无法读取项目文件树");
       });
+    refreshFileTree();
+    const timer = window.setInterval(refreshFileTree, 3000);
+    return () => window.clearInterval(timer);
   }, [projectReady, selectedProject.id, showHidden]);
 
   useEffect(() => {
