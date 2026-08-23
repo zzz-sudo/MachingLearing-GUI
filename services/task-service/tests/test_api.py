@@ -199,6 +199,10 @@ def test_training_api_dispatches_multiple_algorithm_runners(tmp_path: Path) -> N
         diagnostic_response = client.post(f"/api/jobs/{classification_task.json()['jobId']}/diagnostic-charts")
         assert diagnostic_response.status_code == 201
         assert {item["chartType"] for item in diagnostic_response.json()} == {"confusion_matrix", "feature_importance"}
+        diagnostic_jobs = client.post(f"/api/jobs/{classification_task.json()['jobId']}/diagnostic-charts/generate")
+        assert diagnostic_jobs.status_code == 202
+        for diagnostic_job in diagnostic_jobs.json():
+            assert wait_for_chart(client, diagnostic_job["jobId"])["status"] == "succeeded"
 
         xgboost_task = client.post(
             f"/api/projects/{project['id']}/training",
@@ -229,6 +233,13 @@ def test_training_api_dispatches_multiple_algorithm_runners(tmp_path: Path) -> N
         )
         assert clustering_task.status_code == 202
         clustering_result = wait_for_training(client, project["id"], clustering_task.json()["jobId"])
+        clustering_charts = client.post(f"/api/jobs/{clustering_task.json()['jobId']}/diagnostic-charts")
+        assert clustering_charts.status_code == 201
+        assert {item["chartType"] for item in clustering_charts.json()} == {"cluster_scatter", "heatmap"}
+        clustering_chart_jobs = client.post(f"/api/jobs/{clustering_task.json()['jobId']}/diagnostic-charts/generate")
+        assert clustering_chart_jobs.status_code == 202
+        for diagnostic_job in clustering_chart_jobs.json():
+            assert wait_for_chart(client, diagnostic_job["jobId"])["status"] == "succeeded"
 
         anova = create_dataset_from_csv(client, project["id"], anova_fixture, anova_columns)
         anova_task = client.post(
@@ -245,6 +256,13 @@ def test_training_api_dispatches_multiple_algorithm_runners(tmp_path: Path) -> N
         )
         assert anova_task.status_code == 202
         anova_result = wait_for_training(client, project["id"], anova_task.json()["jobId"])
+        anova_charts = client.post(f"/api/jobs/{anova_task.json()['jobId']}/diagnostic-charts")
+        assert anova_charts.status_code == 201
+        assert {item["chartType"] for item in anova_charts.json()} == {"anova_effect", "boxplot"}
+        anova_chart_jobs = client.post(f"/api/jobs/{anova_task.json()['jobId']}/diagnostic-charts/generate")
+        assert anova_chart_jobs.status_code == 202
+        for diagnostic_job in anova_chart_jobs.json():
+            assert wait_for_chart(client, diagnostic_job["jobId"])["status"] == "succeeded"
 
         sequence = create_dataset_from_csv(client, project["id"], sequence_fixture, sequence_columns)
         sequence_task = client.post(
@@ -289,7 +307,7 @@ def test_algorithm_catalog_exposes_stable_capabilities(tmp_path: Path) -> None:
     assert algorithms["xgboost_regressor"]["supportsGpu"] is True
     assert algorithms["factorial_anova"]["requiresFactors"] is True
     assert algorithms["lstm_regressor"]["requiresTime"] is True
-    assert all("status" in item and "chartTemplates" in item for item in catalog["algorithms"])
+    assert all("status" in item and item["chartTemplates"] for item in catalog["algorithms"])
     assert all(item["status"] == "available" for item in catalog["algorithms"])
     parameter_ids = {item["id"] for item in algorithms["lstm_regressor"]["parameters"]}
     assert {"window_size", "hidden_size", "epochs"} <= parameter_ids
@@ -374,7 +392,7 @@ def test_chart_generation_creates_reproducible_artifacts(tmp_path: Path) -> None
 
     assert generated.status_code == 202
     assert result["status"] == "succeeded", result
-    assert {artifact["format"] for artifact in result["artifacts"]} == {"json", "html", "png", "svg"}
+    assert {"json", "html", "png", "svg", "pdf"}.issubset({artifact["format"] for artifact in result["artifacts"]})
     assert html.status_code == 200
     assert b"echarts" in html.content
     assert png.status_code == 200

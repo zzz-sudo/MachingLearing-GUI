@@ -1226,6 +1226,71 @@ textarea:focus-visible {
   background: var(--surface);
 }
 
+.saved-chart-panel {
+  padding: 14px 18px 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.saved-chart-heading,
+.saved-chart-list {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.saved-chart-heading {
+  justify-content: space-between;
+  margin-bottom: 9px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.saved-chart-list {
+  overflow-x: auto;
+  padding-bottom: 9px;
+}
+
+.saved-chart-item {
+  display: grid;
+  flex: 0 0 142px;
+  min-width: 0;
+  gap: 3px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+  text-align: left;
+}
+
+.saved-chart-item.active {
+  border-color: #4e8d80;
+  background: #edf6f3;
+}
+
+.saved-chart-item span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.saved-chart-item small,
+.chart-empty-hint {
+  color: var(--muted);
+  font-size: 9px;
+}
+
+.saved-chart-preview {
+  display: grid;
+  gap: 8px;
+  padding: 0 0 14px;
+}
+
+.chart-empty-hint {
+  margin: 0;
+  padding: 2px 0 14px;
+}
+
 .chart-preview-bars {
   display: flex;
   height: 300px;
@@ -1297,6 +1362,12 @@ textarea:focus-visible {
   font-size: 10px;
 }
 
+.chart-config-form select[multiple] {
+  height: auto;
+  min-height: 92px;
+  padding: 5px 8px;
+}
+
 .chart-source-summary {
   padding: 10px 0;
   border-top: 1px solid var(--line);
@@ -1313,6 +1384,10 @@ textarea:focus-visible {
   margin: 0;
   color: var(--muted);
   font-size: 11px;
+}
+
+.chart-generation-error {
+  color: #a3473d !important;
 }
 
 .chart-artifact-preview {

@@ -281,9 +281,17 @@ export function App() {
         setSelectedJobId((current) => current ?? nextJobs[0]?.id ?? null);
       })
       .catch(() => undefined);
+    const refreshCharts = () => void workspaceClient.listCharts(selectedProject.id)
+      .then(setCharts)
+      .catch(() => undefined);
     refreshJobs();
-    const timer = window.setInterval(refreshJobs, 2000);
-    return () => window.clearInterval(timer);
+    refreshCharts();
+    const jobsTimer = window.setInterval(refreshJobs, 2000);
+    const chartsTimer = window.setInterval(refreshCharts, 2000);
+    return () => {
+      window.clearInterval(jobsTimer);
+      window.clearInterval(chartsTimer);
+    };
   }, [projectReady, selectedProject.id]);
 
   const selectedJob = useMemo(
@@ -309,6 +317,7 @@ export function App() {
             created.forEach((chart) => byId.set(chart.id, chart));
             return Array.from(byId.values());
           });
+          return workspaceClient.generateDiagnosticCharts(selectedJob.id);
         }).catch(() => undefined);
       }
     }).catch(() => undefined);

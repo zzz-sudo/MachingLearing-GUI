@@ -263,6 +263,21 @@ def create_diagnostic_charts(job_id: str, request: Request) -> list[ChartSpecRec
     return created
 
 
+@router.post("/jobs/{job_id}/diagnostic-charts/generate", response_model=list[ChartGenerationResult], status_code=202)
+def generate_diagnostic_charts(job_id: str, request: Request) -> list[ChartGenerationResult]:
+    """Create and start every diagnostic chart supported by the completed model result."""
+
+    charts = create_diagnostic_charts(job_id, request)
+    output: list[ChartGenerationResult] = []
+    for chart in charts:
+        if chart.status == "running":
+            continue
+        if chart.status == "succeeded" and chart.artifact_ids:
+            continue
+        output.append(get_visualization_service(request).start(chart.project_id, chart.id))
+    return output
+
+
 @router.get("/jobs/{job_id}/chart-result", response_model=ChartGenerationResult)
 def get_chart_result(job_id: str, request: Request) -> ChartGenerationResult:
     return get_visualization_service(request).get_result(job_id)

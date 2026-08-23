@@ -116,6 +116,10 @@ export class LocalWorkspaceClient {
     return this.request<ChartSpec[]>(`/jobs/${jobId}/diagnostic-charts`, { method: "POST" });
   }
 
+  async generateDiagnosticCharts(jobId: string): Promise<ChartGenerationResult[]> {
+    return this.request<ChartGenerationResult[]>(`/jobs/${jobId}/diagnostic-charts/generate`, { method: "POST" });
+  }
+
   async createDataset(
     projectId: string,
     assetId: string,

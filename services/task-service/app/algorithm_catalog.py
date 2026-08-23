@@ -115,6 +115,17 @@ def _definition(
     chart_templates: list[str] | None = None,
     parameters: list[AlgorithmParameter] | None = None,
 ) -> AlgorithmDefinition:
+    default_templates = {
+        "classification": ["confusion_matrix", "feature_importance"],
+        "regression": ["scatter", "residual", "feature_importance"],
+        "clustering": ["cluster_scatter", "heatmap"],
+        "anova": ["anova_effect", "boxplot"],
+        "hypothesis_test": ["boxplot", "heatmap"],
+        "exploration": ["bar", "heatmap"],
+        "dimensionality_reduction": ["scatter", "heatmap"],
+        "sequence_regression": ["line", "residual"],
+        "sequence_classification": ["line", "confusion_matrix"],
+    }
     return AlgorithmDefinition(
         id=algorithm_id,
         name=name,
@@ -127,7 +138,7 @@ def _definition(
         supports_gpu=supports_gpu,
         status=status,
         dependencies=dependencies or [],
-        chart_templates=chart_templates or [],
+        chart_templates=chart_templates if chart_templates is not None else default_templates.get(task_type, ["line"]),
         parameters=parameters or [],
     )
 

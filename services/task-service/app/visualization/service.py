@@ -97,7 +97,8 @@ class VisualizationService:
             self.store.update_chart_spec(chart_id, status="succeeded", artifact_ids=artifact_ids)
             self.store.update_job(job_id, JobUpdate(status=JobStatus.SUCCEEDED, progress=100, message="图形生成完成，产物已保存"))
         except (OSError, RuntimeError, subprocess.TimeoutExpired, ValueError, KeyError) as error:
-            result = {"status": "failed", "chartType": "line", "artifacts": [], "warnings": [], "environment": {}, "errorType": type(error).__name__, "errorMessage": str(error)}
+            chart_type = json.loads(config_path.read_text(encoding="utf-8")).get("chartType", "line")
+            result = {"status": "failed", "chartType": chart_type, "artifacts": [], "warnings": [], "environment": {}, "errorType": type(error).__name__, "errorMessage": str(error)}
             result_path.write_text(json.dumps(result, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
             self.store.update_chart_spec(chart_id, status="failed")
             self.store.update_job(job_id, JobUpdate(status=JobStatus.FAILED, progress=100, message=str(error)))

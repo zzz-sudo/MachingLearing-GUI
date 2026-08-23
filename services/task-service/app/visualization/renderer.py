@@ -31,10 +31,30 @@ def _load_frame(config: dict[str, Any]):
 
 def _option(config: dict[str, Any], frame) -> dict[str, Any]:
     chart_type = config["chartType"]
+    title = {"text": config["name"]}
+    if chart_type == "heatmap":
+        numeric = frame.select_dtypes(include=["number"])
+        if numeric.shape[1] < 2:
+            raise ValueError("ChartSpecError: 热力图至少需要两个数值字段")
+        correlation = numeric.corr().fillna(0.0)
+        categories = [str(column) for column in correlation.columns]
+        values = [[x, y, round(float(correlation.iloc[y, x]), 6)] for y in range(len(categories)) for x in range(len(categories))]
+        return {"title": title, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": -1, "max": 1, "calculable": True}, "series": [{"type": "heatmap", "data": values}]}
+    if chart_type == "boxplot":
+        y_columns = config.get("yColumns", [])
+        data = []
+        for column in y_columns:
+            values = frame[column].dropna().astype(float).tolist()
+            if not values:
+                continue
+            import numpy as np
+
+            data.append([float(np.min(values)), float(np.percentile(values, 25)), float(np.median(values)), float(np.percentile(values, 75)), float(np.max(values))])
+        return {"title": title, "tooltip": {"trigger": "item"}, "xAxis": {"type": "category", "data": y_columns}, "yAxis": {"type": "value"}, "series": [{"type": "boxplot", "data": data}]}
     if chart_type == "confusion_matrix":
         categories = sorted({str(row) for row in frame["actual"]} | {str(row) for row in frame["predicted"]})
         index = {(actual, predicted): int(count) for actual, predicted, count in frame[["actual", "predicted", "count"]].itertuples(index=False, name=None)}
-        return {"title": {"text": config["name"]}, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": 0, "max": max(index.values(), default=1), "calculable": True}, "series": [{"type": "heatmap", "data": [[predicted, actual, index.get((actual, predicted), 0)] for actual in categories for predicted in categories]}]}
+        return {"title": title, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": 0, "max": max(index.values(), default=1), "calculable": True}, "series": [{"type": "heatmap", "data": [[predicted, actual, index.get((actual, predicted), 0)] for actual in categories for predicted in categories]}]}
     if chart_type == "feature_importance":
         return {"title": {"text": config["name"]}, "tooltip": {"trigger": "axis"}, "xAxis": {"type": "category", "data": frame["feature"].astype(str).tolist()}, "yAxis": {"type": "value"}, "series": [{"type": "bar", "data": frame["importance"].tolist()}]}
     if chart_type == "residual":
@@ -88,7 +108,7 @@ def _write_html(path: Path, option: dict[str, Any]) -> None:
 
 
 def _render_with_pyecharts(path: Path, config: dict[str, Any], frame) -> tuple[dict[str, Any], bool]:
-    if config["chartType"] in {"confusion_matrix", "feature_importance", "residual", "cluster_scatter", "anova_effect"}:
+    if config["chartType"] in {"histogram", "heatmap", "boxplot", "confusion_matrix", "feature_importance", "residual", "cluster_scatter", "anova_effect"}:
         return _option(config, frame), False
     try:
         from pyecharts import options as opts
@@ -147,14 +167,23 @@ def _write_static(path: Path, config: dict[str, Any], frame) -> None:
         rows = frame[frame["term"].astype(str).str.lower() != "residual"]
         axis.bar(rows["term"].astype(str), rows["f"].fillna(0), color="#4e8d80")
         axis.tick_params(axis="x", rotation=35)
+    elif chart_type == "heatmap":
+        numeric = frame.select_dtypes(include=["number"])
+        image = axis.imshow(numeric.corr().fillna(0.0).values, cmap="coolwarm", vmin=-1, vmax=1)
+        labels = [str(column) for column in numeric.columns]
+        axis.set_xticks(range(len(labels)), labels=labels, rotation=35, ha="right")
+        axis.set_yticks(range(len(labels)), labels=labels)
+        figure.colorbar(image, ax=axis)
+    elif chart_type == "boxplot":
+        y_columns = config["yColumns"]
+        axis.boxplot([frame[column].dropna() for column in y_columns], tick_labels=y_columns)
+        axis.tick_params(axis="x", rotation=35)
     else:
         x_column = config.get("xColumn")
         y_columns = config["yColumns"]
         x_values = frame[x_column].astype(str).tolist() if x_column else list(range(len(frame)))
         if chart_type == "histogram":
             axis.hist(frame[y_columns[0]].dropna(), bins=12, color="#4e8d80")
-        elif chart_type == "boxplot":
-            axis.boxplot([frame[column].dropna() for column in y_columns], labels=y_columns)
         elif chart_type == "scatter":
             for column in y_columns:
                 axis.scatter(x_values, frame[column], label=column, s=18)
@@ -170,6 +199,7 @@ def _write_static(path: Path, config: dict[str, Any], frame) -> None:
     axis.set_title(config["name"])
     figure.savefig(path, dpi=150)
     figure.savefig(path.with_suffix(".svg"))
+    figure.savefig(path.with_suffix(".pdf"))
     plt.close(figure)
 
 
@@ -203,6 +233,7 @@ def render_chart(config: dict[str, Any]) -> dict[str, Any]:
             {"kind": "chart_html", "relativePath": "chart.html", "mediaType": "text/html", "format": "html", "description": "交互式图形页面"},
             {"kind": "chart_image", "relativePath": "chart.png", "mediaType": "image/png", "format": "png", "description": "静态图形导出"},
             {"kind": "chart_image", "relativePath": "chart.svg", "mediaType": "image/svg+xml", "format": "svg", "description": "矢量图形导出"},
+            {"kind": "chart_image", "relativePath": "chart.pdf", "mediaType": "application/pdf", "format": "pdf", "description": "适合报告排版的 PDF 图形导出"},
         ],
         "warnings": warnings,
         "environment": environment,
