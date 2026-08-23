@@ -49,6 +49,11 @@ export class LocalWorkspaceClient {
     return this.request<TablePreview>(`/assets/${assetId}/preview`);
   }
 
+  async getProjectFilePreview(projectId: string, relativePath: string): Promise<TablePreview> {
+    const query = new URLSearchParams({ path: relativePath });
+    return this.request<TablePreview>(`/projects/${projectId}/files/preview?${query.toString()}`);
+  }
+
   async getDocument(assetId: string): Promise<DocumentParseResult> {
     return this.request<DocumentParseResult>(`/assets/${assetId}/document`);
   }

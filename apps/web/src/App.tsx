@@ -173,6 +173,7 @@ export function App() {
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
   const [preview, setPreview] = useState<TablePreview | null>(null);
+  const [previewIsProjectFile, setPreviewIsProjectFile] = useState(false);
   const [dataset, setDataset] = useState<DatasetVersion | null>(null);
   const [documentResult, setDocumentResult] = useState<DocumentParseResult | null>(null);
   const [fieldTypes, setFieldTypes] = useState<Record<string, DatasetColumnSpec["dataType"]>>({});
@@ -319,6 +320,7 @@ export function App() {
     try {
       const result = await workspaceClient.importFile(selectedProject.id, file);
       setPreview(result.preview ?? null);
+      setPreviewIsProjectFile(false);
       setDocumentResult(result.document ?? null);
       setDataset(null);
       setFieldTypes(result.preview ? createInitialFieldTypes(result.preview) : {});
@@ -355,6 +357,7 @@ export function App() {
     }
     setSelectedAsset(asset);
     setSelectedFilePath(asset.relativePath);
+    setPreviewIsProjectFile(false);
     setImportError(null);
     if (asset.name.toLowerCase().endsWith(".pdf")) {
       try {
@@ -390,6 +393,22 @@ export function App() {
       return;
     }
     setSelectedAsset(null);
+    setPreviewIsProjectFile(false);
+    const suffix = file.name.toLowerCase().split(".").pop();
+    if (suffix === "csv" || suffix === "xlsx") {
+      void workspaceClient.getProjectFilePreview(selectedProject.id, file.relativePath).then((result) => {
+        setPreview(result);
+        setFieldTypes(createInitialFieldTypes(result));
+        setDocumentResult(null);
+        setPreviewIsProjectFile(true);
+        setActiveRail("datasets");
+      }).catch((error: unknown) => {
+        setPreview(null);
+        setImportError(asWorkspaceError(error, "project_file_preview", "无法预览项目表格"));
+        setActiveRail("documents");
+      });
+      return;
+    }
     setPreview(null);
     setDocumentResult(null);
     setImportError(null);
@@ -530,6 +549,7 @@ export function App() {
               confirming={confirming}
               dataset={dataset}
               documentResult={documentResult}
+              previewIsProjectFile={previewIsProjectFile}
               selectedAsset={selectedAsset}
               selectedFile={selectedProjectFile}
               selectedAnalysis={selectedAnalysis}
@@ -1201,6 +1221,7 @@ type WorkspaceContentProps = {
   confirming: boolean;
   dataset: DatasetVersion | null;
   documentResult: DocumentParseResult | null;
+  previewIsProjectFile: boolean;
   selectedAsset: Asset | null;
   selectedFile: ProjectFileNode | null;
   selectedAnalysis: string;
@@ -1231,6 +1252,7 @@ function WorkspaceContent({
   confirming,
   dataset,
   documentResult,
+  previewIsProjectFile,
   selectedAsset,
   selectedFile,
   selectedAnalysis,
@@ -1325,9 +1347,9 @@ function WorkspaceContent({
               停止
             </button>
           ) : null}
-          <button className="primary-button" type="button" onClick={onConfirm} disabled={!preview || confirming}>
+          <button className="primary-button" type="button" onClick={onConfirm} disabled={!preview || confirming || previewIsProjectFile}>
             <Play aria-hidden="true" size={15} />
-            {preview ? confirming ? "正在创建" : dataset ? `数据集 v${dataset.version}` : "确认字段" : "继续运行"}
+            {previewIsProjectFile ? "项目文件只读预览" : preview ? confirming ? "正在创建" : dataset ? `数据集 v${dataset.version}` : "确认字段" : "继续运行"}
           </button>
         </div>
       </section>
@@ -1532,7 +1554,7 @@ function DocumentWorkspace({
         ) : isTextPreviewFile(fileName) ? (
           <TextFileViewer fileName={fileName} url={contentUrl} />
         ) : (
-          <iframe className="office-document-frame" src={contentUrl} title={`${fileName} 原文件预览`} />
+          <ProjectFileNotice fileName={fileName} />
         )
       ) : document ? (
         <div className="parsed-document-pages">
@@ -1548,6 +1570,17 @@ function DocumentWorkspace({
           ))}
         </div>
       ) : null}
+    </div>
+  );
+}
+
+function ProjectFileNotice({ fileName }: { fileName: string }) {
+  return (
+    <div className="project-file-notice">
+      <FileSpreadsheet aria-hidden="true" size={32} />
+      <strong>{fileName}</strong>
+      <span>该项目文件已在本地工作区中，当前类型不通过浏览器直接渲染，因此不会自动下载。</span>
+      <small>表格文件可以从项目树打开只读预览，其他二进制文件请使用导入流程解析。</small>
     </div>
   );
 }
@@ -2046,7 +2079,7 @@ function findProjectFile(nodes: ProjectFileNode[], relativePath: string): Projec
 }
 
 function isTextPreviewFile(fileName: string): boolean {
-  return [".json", ".md", ".markdown", ".txt", ".yaml", ".yml"].some((suffix) => fileName.toLowerCase().endsWith(suffix));
+  return [".csv", ".tsv", ".json", ".md", ".markdown", ".txt", ".yaml", ".yml", ".log", ".toml", ".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".html"].some((suffix) => fileName.toLowerCase().endsWith(suffix));
 }
 
 function formatTextPreview(fileName: string, content: string): string {

@@ -113,6 +113,23 @@ def test_default_project_ignores_legacy_user_directory(tmp_path: Path) -> None:
     assert Path(project.path).resolve() == expected.resolve()
 
 
+def test_project_table_file_preview_does_not_download(tmp_path: Path) -> None:
+    project_path = tmp_path / "project-file-preview"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        source_path = project_path / "source" / "local.csv"
+        source_path.write_text("名称,数值\n甲,1\n乙,2\n", encoding="utf-8")
+
+        preview = client.get(f"/api/projects/{project['id']}/files/preview", params={"path": "source/local.csv"})
+        content = client.get(f"/api/projects/{project['id']}/files/content", params={"path": "source/local.csv"})
+
+    assert preview.status_code == 200
+    assert preview.json()["sourceName"] == "local.csv"
+    assert preview.json()["rows"] == [{"名称": "甲", "数值": "1"}, {"名称": "乙", "数值": "2"}]
+    assert content.status_code == 200
+    assert "inline" in content.headers["content-disposition"]
+
+
 def test_health_endpoint(tmp_path: Path) -> None:
     with create_test_client(tmp_path) as client:
         response = client.get("/api/health")

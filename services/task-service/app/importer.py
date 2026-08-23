@@ -105,6 +105,22 @@ class FileImporter:
             extracted_count=extracted_count,
         )
 
+    def preview_project_file(self, project_id: str, relative_path: str) -> TablePreview:
+        """Read a table already inside the project without creating a duplicate asset."""
+
+        project = self.store.get_project(project_id)
+        path = self.store.resolve_project_file(project_id, relative_path)
+        if path.suffix.lower() not in TABLE_SUFFIXES:
+            raise import_error(
+                "UnsupportedPreviewFormatError",
+                f"项目文件不支持表格预览: {path.name}",
+                "project_file_preview",
+                filename=path.name,
+                supportedFormats=sorted(TABLE_SUFFIXES),
+            )
+        preview = self._preview_table(path, f"project-file:{project.id}:{path.relative_to(Path(project.path)).as_posix()}")
+        return preview
+
     def _record_asset(
         self,
         project_id: str,
