@@ -121,9 +121,12 @@ def test_project_table_file_preview_does_not_download(tmp_path: Path) -> None:
         source_path.write_text("名称,数值\n甲,1\n乙,2\n", encoding="utf-8")
 
         preview = client.get(f"/api/projects/{project['id']}/files/preview", params={"path": "source/local.csv"})
+        registered = client.post(f"/api/projects/{project['id']}/files/register", params={"path": "source/local.csv"})
         content = client.get(f"/api/projects/{project['id']}/files/content", params={"path": "source/local.csv"})
 
     assert preview.status_code == 200
+    assert registered.status_code == 201
+    assert registered.json()["importedAssets"][0]["relativePath"] == "source/local.csv"
     assert preview.json()["sourceName"] == "local.csv"
     assert preview.json()["rows"] == [{"名称": "甲", "数值": "1"}, {"名称": "乙", "数值": "2"}]
     assert content.status_code == 200

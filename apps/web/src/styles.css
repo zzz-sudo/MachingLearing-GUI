@@ -396,7 +396,8 @@ textarea:focus-visible {
 }
 
 .tree-row[data-hidden="true"] {
-  opacity: 0.68;
+  opacity: 0.82;
+  color: #68717a;
 }
 
 .tree-empty {
@@ -536,6 +537,12 @@ textarea:focus-visible {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 12px;
+}
+
+.tree-row[data-hidden="true"] span:last-child::after {
+  content: " 隐藏文件";
+  color: var(--muted);
+  font-size: 9px;
 }
 
 .tree-spacer {
@@ -1809,14 +1816,17 @@ textarea:focus-visible {
 
 .data-table-shell {
   width: 100%;
-  overflow: auto;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-color: #a5b7b2 #edf1f0;
+  scrollbar-width: thin;
 }
 
 table {
-  width: 100%;
-  min-width: 660px;
+  width: max-content;
+  min-width: 100%;
   border-collapse: collapse;
-  table-layout: fixed;
+  table-layout: auto;
 }
 
 th,
@@ -1830,6 +1840,12 @@ td {
   text-overflow: ellipsis;
   white-space: nowrap;
   font-size: 11px;
+}
+
+.data-table-shell th,
+.data-table-shell td {
+  min-width: 120px;
+  max-width: 280px;
 }
 
 th {

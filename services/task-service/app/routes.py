@@ -121,6 +121,15 @@ def preview_project_file(
     return FileImporter(get_store(request)).preview_project_file(project_id, relative_path)
 
 
+@router.post("/projects/{project_id}/files/register", response_model=ImportResult, status_code=201)
+def register_project_file(
+    project_id: str,
+    request: Request,
+    relative_path: str = Query(alias="path"),
+) -> ImportResult:
+    return FileImporter(get_store(request)).register_project_file(project_id, relative_path)
+
+
 @router.get("/assets/{asset_id}/content")
 def get_asset_content(asset_id: str, request: Request) -> FileResponse:
     asset, path = get_store(request).resolve_asset_path(asset_id)

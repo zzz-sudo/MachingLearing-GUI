@@ -361,6 +361,7 @@ export function App() {
     setSelectedAsset(asset);
     setSelectedFilePath(asset.relativePath);
     setPreviewIsProjectFile(false);
+    setDataset(null);
     setImportError(null);
     if (asset.name.toLowerCase().endsWith(".pdf")) {
       try {
@@ -383,6 +384,8 @@ export function App() {
       setPreview(restoredPreview);
       setDocumentResult(null);
       setFieldTypes(createInitialFieldTypes(restoredPreview));
+      const datasets = await workspaceClient.listDatasets(selectedProject.id);
+      setDataset(datasets.find((item) => item.sourceAssetId === asset.id) ?? null);
       setActiveRail("datasets");
     } catch (error: unknown) {
       setImportError(asWorkspaceError(error, "asset_open", "当前文件没有可用预览"));
@@ -391,6 +394,7 @@ export function App() {
 
   function openProjectFile(file: ProjectFileNode) {
     setSelectedFilePath(file.relativePath);
+    setDataset(null);
     if (file.assetId) {
       void openAsset(file.assetId);
       return;
@@ -399,11 +403,17 @@ export function App() {
     setPreviewIsProjectFile(false);
     const suffix = file.name.toLowerCase().split(".").pop();
     if (suffix === "csv" || suffix === "xlsx") {
-      void workspaceClient.getProjectFilePreview(selectedProject.id, file.relativePath).then((result) => {
-        setPreview(result);
-        setFieldTypes(createInitialFieldTypes(result));
+      void workspaceClient.registerProjectFile(selectedProject.id, file.relativePath).then(async (result) => {
+        const asset = result.importedAssets[0] ?? null;
+        setAssets(await workspaceClient.listAssets(selectedProject.id));
+        setFileTree(await workspaceClient.getProjectTree(selectedProject.id, showHidden));
+        setSelectedAsset(asset);
+        setPreview(result.preview ?? null);
+        setFieldTypes(result.preview ? createInitialFieldTypes(result.preview) : {});
+        const datasets = await workspaceClient.listDatasets(selectedProject.id);
+        setDataset(datasets.find((item) => item.sourceAssetId === asset?.id) ?? null);
         setDocumentResult(null);
-        setPreviewIsProjectFile(true);
+        setPreviewIsProjectFile(false);
         setActiveRail("datasets");
       }).catch((error: unknown) => {
         setPreview(null);
@@ -563,6 +573,7 @@ export function App() {
               trainingResult={trainingResult}
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
+              onGoToModels={() => setActiveRail("models")}
               onExport={() => dataset && window.open(workspaceClient.getParquetUrl(dataset.id), "_blank")}
               onImport={() => projectReady && fileInputRef.current?.click()}
               onSelectAnalysis={setSelectedAnalysis}
@@ -1235,6 +1246,7 @@ type WorkspaceContentProps = {
   projectReady: boolean;
   onImport: () => void;
   onConfirm: () => void;
+  onGoToModels: () => void;
   onExport: () => void;
   onSelectAnalysis: (analysis: string) => void;
   onCreateModelPlan: (payload: TrainingCreate) => void;
@@ -1266,6 +1278,7 @@ function WorkspaceContent({
   projectReady,
   onImport,
   onConfirm,
+  onGoToModels,
   onExport,
   onSelectAnalysis,
   onCreateModelPlan,
@@ -1350,9 +1363,9 @@ function WorkspaceContent({
               停止
             </button>
           ) : null}
-          <button className="primary-button" type="button" onClick={onConfirm} disabled={!preview || confirming || previewIsProjectFile}>
+          <button className="primary-button" type="button" onClick={dataset ? onGoToModels : onConfirm} disabled={!preview || confirming || previewIsProjectFile}>
             <Play aria-hidden="true" size={15} />
-            {previewIsProjectFile ? "项目文件只读预览" : preview ? confirming ? "正在创建" : dataset ? `数据集 v${dataset.version}` : "确认字段" : "继续运行"}
+            {previewIsProjectFile ? "项目文件只读预览" : preview ? confirming ? "正在创建" : dataset ? "前往模型训练" : "确认字段" : "继续运行"}
           </button>
         </div>
       </section>

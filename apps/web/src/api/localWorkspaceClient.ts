@@ -54,6 +54,11 @@ export class LocalWorkspaceClient {
     return this.request<TablePreview>(`/projects/${projectId}/files/preview?${query.toString()}`);
   }
 
+  async registerProjectFile(projectId: string, relativePath: string): Promise<ImportResult> {
+    const query = new URLSearchParams({ path: relativePath });
+    return this.request<ImportResult>(`/projects/${projectId}/files/register?${query.toString()}`, { method: "POST" });
+  }
+
   async getDocument(assetId: string): Promise<DocumentParseResult> {
     return this.request<DocumentParseResult>(`/assets/${assetId}/document`);
   }

@@ -121,6 +121,27 @@ class FileImporter:
         preview = self._preview_table(path, f"project-file:{project.id}:{path.relative_to(Path(project.path)).as_posix()}")
         return preview
 
+    def register_project_file(self, project_id: str, relative_path: str) -> ImportResult:
+        """Register an existing project table as an asset without copying its bytes."""
+
+        project = self.store.get_project(project_id)
+        path = self.store.resolve_project_file(project_id, relative_path)
+        if path.suffix.lower() not in TABLE_SUFFIXES:
+            raise import_error(
+                "UnsupportedImportFormatError",
+                f"当前项目文件不是可导入表格: {path.name}",
+                "project_file_register",
+                filename=path.name,
+                supportedFormats=sorted(TABLE_SUFFIXES),
+            )
+        normalized_path = path.relative_to(Path(project.path)).as_posix()
+        existing = next((asset for asset in self.store.list_assets(project_id) if asset.relative_path == normalized_path), None)
+        asset = existing or self._record_asset(project_id, Path(project.path), path)
+        preview = self.store.get_preview(asset.id) if existing else self._preview_table(path, asset.id)
+        if not existing:
+            self.store.save_preview(preview)
+        return ImportResult(imported_assets=[asset], preview=preview)
+
     def _record_asset(
         self,
         project_id: str,
