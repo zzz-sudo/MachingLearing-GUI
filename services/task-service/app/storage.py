@@ -439,6 +439,8 @@ class WorkspaceStore:
             nodes: list[ProjectFileNode] = []
             for entry in entries:
                 path = Path(entry.path)
+                if entry.name.casefold() == ".gitkeep":
+                    continue
                 hidden = self._is_hidden(path)
                 if hidden and not include_hidden:
                     continue

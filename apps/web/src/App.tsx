@@ -93,6 +93,20 @@ const algorithmTaskLabels: Record<AlgorithmDefinition["taskType"], string> = {
   dimensionality_reduction: "降维分析",
 };
 
+const chartTemplateLabels: Record<string, string> = {
+  scatter: "预测与真实值散点图",
+  line: "序列趋势图",
+  bar: "分类柱状图",
+  histogram: "分布直方图",
+  boxplot: "分组箱线图",
+  heatmap: "相关性热力图",
+  confusion_matrix: "混淆矩阵",
+  feature_importance: "特征重要性",
+  residual: "残差诊断",
+  cluster_scatter: "聚类样本分布",
+  anova_effect: "方差分析效应",
+};
+
 function algorithmIcon(taskType: AlgorithmDefinition["taskType"]) {
   if (taskType === "classification") return Layers3;
   if (taskType === "regression") return LineChart;
@@ -843,6 +857,7 @@ function ContextSidebar({
     setExpandedAlgorithmNodes((current) => current.size > 0 ? current : new Set(algorithms.map((algorithm) => algorithm.taskType)));
   }, [algorithms]);
   const visibleTree = normalizedSearch ? filterProjectTree(fileTree, normalizedSearch) : fileTree;
+  const visibleCharts = charts.filter((chart, index, source) => source.findIndex((candidate) => candidate.datasetId === chart.datasetId && candidate.name === chart.name && candidate.chartType === chart.chartType) === index);
 
   function toggleDirectory(relativePath: string) {
     setExpandedPaths((current) => {
@@ -929,7 +944,7 @@ function ContextSidebar({
         <section className="sidebar-section sidebar-fill-section">
           <SectionTitle icon={BarChart3} title="已保存图形" />
           <div className="analysis-nav-list">
-            {charts.length === 0 ? <p className="sidebar-empty">还没有保存的图形规格</p> : charts.map((chart) => (
+            {visibleCharts.length === 0 ? <p className="sidebar-empty">还没有保存的图形规格</p> : visibleCharts.map((chart) => (
               <button key={chart.id} className="analysis-nav-row" type="button">
                 <BarChart3 aria-hidden="true" size={16} />
                 <span><strong>{chart.name}</strong><small>{chart.chartType}</small></span>
@@ -1936,6 +1951,7 @@ function ModelWorkspace({
                   <PropertyRow label="验证比例" value={`${validationRatio}%`} />
                   <PropertyRow label="计算位置" value={computeMode.toUpperCase()} />
                   <PropertyRow label="随机种子" value={String(randomSeed)} />
+                  <div className="chart-template-summary"><span>模型专用图形</span><div>{(method?.chartTemplates ?? []).map((template) => <span className="chart-template-chip" key={template}>{chartTemplateLabels[template] ?? template}</span>)}</div></div>
                 </div>
               </div>
             </div>

@@ -1286,6 +1286,16 @@ textarea:focus-visible {
   padding: 0 0 14px;
 }
 
+.chart-image-preview {
+  display: block;
+  width: 100%;
+  max-height: 430px;
+  min-height: 180px;
+  border: 1px solid var(--line);
+  background: #ffffff;
+  object-fit: contain;
+}
+
 .chart-empty-hint {
   margin: 0;
   padding: 2px 0 14px;
@@ -1372,6 +1382,30 @@ textarea:focus-visible {
   padding: 10px 0;
   border-top: 1px solid var(--line);
   border-bottom: 1px solid var(--line);
+}
+
+.chart-template-summary {
+  display: grid;
+  gap: 7px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.chart-template-summary > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.chart-template-chip {
+  padding: 4px 6px;
+  border: 1px solid #b7c9c5;
+  border-radius: 3px;
+  background: #f1f7f5;
+  color: #174f45;
+  font-size: 9px;
 }
 
 .chart-generation-state {

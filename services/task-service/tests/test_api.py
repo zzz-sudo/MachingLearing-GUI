@@ -480,6 +480,7 @@ def test_project_tree_includes_nested_and_hidden_entries(tmp_path: Path) -> None
         hidden_directory = project_path / ".workspace-cache"
         hidden_directory.mkdir()
         (hidden_directory / "state.json").write_text("{}", encoding="utf-8")
+        (project_path / ".gitkeep").write_text("", encoding="utf-8")
         nested_directory = project_path / "source" / "季度报表"
         nested_directory.mkdir()
         (nested_directory / "说明.txt").write_text("项目说明", encoding="utf-8")
@@ -494,6 +495,7 @@ def test_project_tree_includes_nested_and_hidden_entries(tmp_path: Path) -> None
         )
 
     assert complete_tree.status_code == 200
+    assert all(node["name"] != ".gitkeep" for node in complete_tree.json())
     assert complete_tree.json()[0]["name"] == ".workspace-cache"
     assert complete_tree.json()[0]["hidden"] is True
     source = next(node for node in complete_tree.json() if node["name"] == "source")

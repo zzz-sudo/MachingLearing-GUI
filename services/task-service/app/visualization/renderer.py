@@ -6,6 +6,9 @@ from pathlib import Path
 from typing import Any
 
 
+CNS_PALETTE = ["#0072B2", "#D55E00", "#009E73", "#E69F00", "#56B4E9", "#CC79A7", "#000000"]
+
+
 def _load_frame(config: dict[str, Any]):
     import pandas as pd
 
@@ -39,7 +42,7 @@ def _option(config: dict[str, Any], frame) -> dict[str, Any]:
         correlation = numeric.corr().fillna(0.0)
         categories = [str(column) for column in correlation.columns]
         values = [[x, y, round(float(correlation.iloc[y, x]), 6)] for y in range(len(categories)) for x in range(len(categories))]
-        return {"title": title, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": -1, "max": 1, "calculable": True}, "series": [{"type": "heatmap", "data": values}]}
+        return {"color": CNS_PALETTE, "title": title, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": -1, "max": 1, "calculable": True}, "series": [{"type": "heatmap", "data": values}]}
     if chart_type == "boxplot":
         y_columns = config.get("yColumns", [])
         data = []
@@ -50,20 +53,20 @@ def _option(config: dict[str, Any], frame) -> dict[str, Any]:
             import numpy as np
 
             data.append([float(np.min(values)), float(np.percentile(values, 25)), float(np.median(values)), float(np.percentile(values, 75)), float(np.max(values))])
-        return {"title": title, "tooltip": {"trigger": "item"}, "xAxis": {"type": "category", "data": y_columns}, "yAxis": {"type": "value"}, "series": [{"type": "boxplot", "data": data}]}
+        return {"color": CNS_PALETTE, "title": title, "tooltip": {"trigger": "item"}, "xAxis": {"type": "category", "data": y_columns}, "yAxis": {"type": "value"}, "series": [{"type": "boxplot", "data": data}]}
     if chart_type == "confusion_matrix":
         categories = sorted({str(row) for row in frame["actual"]} | {str(row) for row in frame["predicted"]})
         index = {(actual, predicted): int(count) for actual, predicted, count in frame[["actual", "predicted", "count"]].itertuples(index=False, name=None)}
-        return {"title": title, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": 0, "max": max(index.values(), default=1), "calculable": True}, "series": [{"type": "heatmap", "data": [[predicted, actual, index.get((actual, predicted), 0)] for actual in categories for predicted in categories]}]}
+        return {"color": CNS_PALETTE, "title": title, "tooltip": {"position": "top"}, "xAxis": {"type": "category", "data": categories}, "yAxis": {"type": "category", "data": categories}, "visualMap": {"min": 0, "max": max(index.values(), default=1), "calculable": True}, "series": [{"type": "heatmap", "data": [[predicted, actual, index.get((actual, predicted), 0)] for actual in categories for predicted in categories]}]}
     if chart_type == "feature_importance":
-        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "axis"}, "xAxis": {"type": "category", "data": frame["feature"].astype(str).tolist()}, "yAxis": {"type": "value"}, "series": [{"type": "bar", "data": frame["importance"].tolist()}]}
+        return {"color": CNS_PALETTE, "title": {"text": config["name"]}, "tooltip": {"trigger": "axis"}, "xAxis": {"type": "category", "data": frame["feature"].astype(str).tolist()}, "yAxis": {"type": "value"}, "series": [{"type": "bar", "data": frame["importance"].tolist()}]}
     if chart_type == "residual":
-        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "item"}, "xAxis": {"type": "value", "name": "predicted"}, "yAxis": {"type": "value", "name": "residual"}, "series": [{"type": "scatter", "data": frame[["predicted", "residual"]].values.tolist()}]}
+        return {"color": CNS_PALETTE, "title": {"text": config["name"]}, "tooltip": {"trigger": "item"}, "xAxis": {"type": "value", "name": "predicted"}, "yAxis": {"type": "value", "name": "residual"}, "series": [{"type": "scatter", "data": frame[["predicted", "residual"]].values.tolist()}]}
     if chart_type == "anova_effect":
         rows = frame[frame["term"].astype(str).str.lower() != "residual"]
-        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "axis"}, "xAxis": {"type": "category", "data": rows["term"].astype(str).tolist()}, "yAxis": {"type": "value", "name": "F"}, "series": [{"type": "bar", "data": rows["f"].fillna(0).tolist()}]}
+        return {"color": CNS_PALETTE, "title": {"text": config["name"]}, "tooltip": {"trigger": "axis"}, "xAxis": {"type": "category", "data": rows["term"].astype(str).tolist()}, "yAxis": {"type": "value", "name": "F"}, "series": [{"type": "bar", "data": rows["f"].fillna(0).tolist()}]}
     if chart_type == "cluster_scatter":
-        return {"title": {"text": config["name"]}, "tooltip": {"trigger": "item"}, "xAxis": {"type": "value", "name": "rowIndex"}, "yAxis": {"type": "value", "name": "cluster"}, "series": [{"type": "scatter", "data": frame[["rowIndex", "cluster"]].values.tolist()}]}
+        return {"color": CNS_PALETTE, "title": {"text": config["name"]}, "tooltip": {"trigger": "item"}, "xAxis": {"type": "value", "name": "rowIndex"}, "yAxis": {"type": "value", "name": "cluster"}, "series": [{"type": "scatter", "data": frame[["rowIndex", "cluster"]].values.tolist()}]}
     x_column = config.get("xColumn")
     y_columns = config["yColumns"]
     x_values = frame[x_column].astype(str).tolist() if x_column else [str(index) for index in frame.index]
@@ -81,6 +84,7 @@ def _option(config: dict[str, Any], frame) -> dict[str, Any]:
         x_values = [round((edges[index] + edges[index + 1]) / 2, 6) for index in range(len(counts))]
         series = [{"name": y_columns[0], "type": "bar", "data": counts}]
     return {
+        "color": CNS_PALETTE,
         "title": {"text": config["name"]},
         "tooltip": {"trigger": "axis"},
         "legend": {"show": bool(config.get("options", {}).get("showLegend", True))},
@@ -108,7 +112,7 @@ def _write_html(path: Path, option: dict[str, Any]) -> None:
 
 
 def _render_with_pyecharts(path: Path, config: dict[str, Any], frame) -> tuple[dict[str, Any], bool]:
-    if config["chartType"] in {"histogram", "heatmap", "boxplot", "confusion_matrix", "feature_importance", "residual", "cluster_scatter", "anova_effect"}:
+    if config["chartType"] in {"scatter", "line", "bar", "histogram", "heatmap", "boxplot", "confusion_matrix", "feature_importance", "residual", "cluster_scatter", "anova_effect"}:
         return _option(config, frame), False
     try:
         from pyecharts import options as opts
@@ -152,24 +156,24 @@ def _write_static(path: Path, config: dict[str, Any], frame) -> None:
         axis.set_yticks(range(len(pivot.index)), labels=[str(value) for value in pivot.index])
         figure.colorbar(image, ax=axis)
     elif chart_type == "feature_importance":
-        axis.bar(frame["feature"].astype(str), frame["importance"], color="#4e8d80")
+        axis.bar(frame["feature"].astype(str), frame["importance"], color=CNS_PALETTE[0])
         axis.tick_params(axis="x", rotation=35)
     elif chart_type == "residual":
-        axis.scatter(frame["predicted"], frame["residual"], color="#4e8d80", s=18)
-        axis.axhline(0, color="#777", linewidth=1)
+        axis.scatter(frame["predicted"], frame["residual"], color=CNS_PALETTE[0], s=18)
+        axis.axhline(0, color=CNS_PALETTE[6], linewidth=1)
         axis.set_xlabel("predicted")
         axis.set_ylabel("residual")
     elif chart_type == "cluster_scatter":
-        axis.scatter(frame["rowIndex"], frame["cluster"], color="#4e8d80", s=18)
+        axis.scatter(frame["rowIndex"], frame["cluster"], color=CNS_PALETTE[2], s=18)
         axis.set_xlabel("rowIndex")
         axis.set_ylabel("cluster")
     elif chart_type == "anova_effect":
         rows = frame[frame["term"].astype(str).str.lower() != "residual"]
-        axis.bar(rows["term"].astype(str), rows["f"].fillna(0), color="#4e8d80")
+        axis.bar(rows["term"].astype(str), rows["f"].fillna(0), color=CNS_PALETTE[1])
         axis.tick_params(axis="x", rotation=35)
     elif chart_type == "heatmap":
         numeric = frame.select_dtypes(include=["number"])
-        image = axis.imshow(numeric.corr().fillna(0.0).values, cmap="coolwarm", vmin=-1, vmax=1)
+        image = axis.imshow(numeric.corr().fillna(0.0).values, cmap="RdBu_r", vmin=-1, vmax=1)
         labels = [str(column) for column in numeric.columns]
         axis.set_xticks(range(len(labels)), labels=labels, rotation=35, ha="right")
         axis.set_yticks(range(len(labels)), labels=labels)
@@ -183,16 +187,16 @@ def _write_static(path: Path, config: dict[str, Any], frame) -> None:
         y_columns = config["yColumns"]
         x_values = frame[x_column].astype(str).tolist() if x_column else list(range(len(frame)))
         if chart_type == "histogram":
-            axis.hist(frame[y_columns[0]].dropna(), bins=12, color="#4e8d80")
+            axis.hist(frame[y_columns[0]].dropna(), bins=12, color=CNS_PALETTE[0])
         elif chart_type == "scatter":
-            for column in y_columns:
-                axis.scatter(x_values, frame[column], label=column, s=18)
+            for index, column in enumerate(y_columns):
+                axis.scatter(x_values, frame[column], label=column, color=CNS_PALETTE[index % len(CNS_PALETTE)], s=18)
             axis.legend()
         elif chart_type == "bar":
-            axis.bar(x_values, frame[y_columns[0]], color="#4e8d80")
+            axis.bar(x_values, frame[y_columns[0]], color=CNS_PALETTE[0])
         else:
-            for column in y_columns:
-                axis.plot(x_values, frame[column], label=column)
+            for index, column in enumerate(y_columns):
+                axis.plot(x_values, frame[column], label=column, color=CNS_PALETTE[index % len(CNS_PALETTE)])
             axis.legend()
         axis.set_xlabel(x_column or "index")
         axis.set_ylabel(", ".join(y_columns))
