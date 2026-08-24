@@ -10,6 +10,7 @@ import type {
   DatasetColumnSpec,
   DatasetVersion,
   DocumentParseResult,
+  ImportResult,
   Job,
   Project,
   ProjectFileNode,
@@ -73,12 +74,12 @@ const initialProject = demoProjects[0]!;
 
 const railItems = [
   { id: "workspace", label: "工作台", icon: LayoutDashboard },
+  { id: "tools", label: "工具", icon: Wrench },
   { id: "datasets", label: "数据", icon: Database },
-  { id: "documents", label: "文档", icon: FileText },
   { id: "models", label: "模型", icon: Box },
   { id: "charts", label: "图形", icon: BarChart3 },
   { id: "jobs", label: "任务", icon: History },
-  { id: "tools", label: "工具", icon: Wrench },
+  { id: "documents", label: "文档", icon: FileText },
 ] as const;
 
 const algorithmTaskLabels: Record<AlgorithmDefinition["taskType"], string> = {
@@ -344,26 +345,41 @@ export function App() {
   }, [selectedJob?.id, selectedJob?.status]);
 
   async function importSelectedFile(file: File) {
+    await importSelectedFiles([file]);
+  }
+
+  async function importSelectedFiles(files: File[] | FileList) {
     if (!projectReady) {
       return;
     }
     setImporting(true);
     setImportError(null);
     try {
-      const result = await workspaceClient.importFile(selectedProject.id, file);
-      setPreview(result.preview ?? null);
+      let firstResult: ImportResult | null = null;
+      for (const file of Array.from(files)) {
+        const result = await workspaceClient.importFile(selectedProject.id, file);
+        const hasPreview = Boolean(result.preview || result.document);
+        const currentHasPreview = Boolean(firstResult?.preview || firstResult?.document);
+        if (!firstResult || (!currentHasPreview && hasPreview)) {
+          firstResult = result;
+        }
+      }
+      if (!firstResult) {
+        return;
+      }
+      setPreview(firstResult.preview ?? null);
       setPreviewIsProjectFile(false);
-      setDocumentResult(result.document ?? null);
+      setDocumentResult(firstResult.document ?? null);
       setDataset(null);
-      setFieldTypes(result.preview ? createInitialFieldTypes(result.preview) : {});
+      setFieldTypes(firstResult.preview ? createInitialFieldTypes(firstResult.preview) : {});
       const projectAssets = await workspaceClient.listAssets(selectedProject.id);
       setAssets(projectAssets);
       setFileTree(await workspaceClient.getProjectTree(selectedProject.id, showHidden));
-      const importedAssetId = result.document?.assetId ?? result.preview?.assetId;
+      const importedAssetId = firstResult.document?.assetId ?? firstResult.preview?.assetId ?? firstResult.importedAssets[0]?.id;
       const importedAsset = projectAssets.find((asset) => asset.id === importedAssetId) ?? null;
       setSelectedAsset(importedAsset);
       setSelectedFilePath(importedAsset?.relativePath ?? null);
-      setActiveRail(result.document ? "documents" : "datasets");
+      setActiveRail("datasets");
       setActiveInspector("properties");
     } catch (error: unknown) {
       if (error instanceof WorkspaceClientError) {
@@ -396,7 +412,7 @@ export function App() {
       try {
         setDocumentResult(await workspaceClient.getDocument(assetId));
         setPreview(null);
-        setActiveRail("documents");
+        setActiveRail("datasets");
       } catch (error: unknown) {
         setImportError(asWorkspaceError(error, "document_open", "无法打开文档解析结果"));
       }
@@ -517,17 +533,32 @@ export function App() {
     setPrompt("");
   }
 
+  function openImportPicker(directory: boolean) {
+    const input = fileInputRef.current;
+    if (!input) {
+      return;
+    }
+    if (directory) {
+      input.setAttribute("webkitdirectory", "");
+      input.setAttribute("directory", "");
+    } else {
+      input.removeAttribute("webkitdirectory");
+      input.removeAttribute("directory");
+    }
+    input.click();
+  }
+
   return (
     <div className="app-shell">
       <input
         ref={fileInputRef}
         className="sr-only"
         type="file"
-        accept=".csv,.xlsx,.pdf,.zip,.tar,.tgz,.gz"
+        multiple
+        accept=".csv,.xlsx,.pdf,.md,.markdown,.txt,.json,.yaml,.yml,.zip,.tar,.tgz,.gz"
         onChange={(event) => {
-          const file = event.target.files?.[0];
-          if (file) {
-            void importSelectedFile(file);
+          if (event.target.files && event.target.files.length > 0) {
+            void importSelectedFiles(event.target.files);
           }
           event.target.value = "";
         }}
@@ -555,7 +586,7 @@ export function App() {
             algorithms={algorithms}
             charts={charts}
             selectedChartId={selectedChartId}
-            onImport={() => projectReady && fileInputRef.current?.click()}
+            onImport={() => projectReady && openImportPicker(true)}
             onSelectAnalysis={(analysis) => {
               setSelectedAnalysis(analysis);
               setActiveRail("models");
@@ -609,8 +640,10 @@ export function App() {
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
               onGoToModels={() => setActiveRail("models")}
+              onGoToCharts={() => setActiveRail("charts")}
               onExport={() => dataset && window.open(workspaceClient.getParquetUrl(dataset.id), "_blank")}
-              onImport={() => projectReady && fileInputRef.current?.click()}
+              onImport={() => projectReady && openImportPicker(true)}
+              onImportArchive={() => projectReady && openImportPicker(false)}
               onSelectAnalysis={setSelectedAnalysis}
               onCreateModelPlan={createTraining}
               onCreateChart={createChart}
@@ -1240,7 +1273,19 @@ function WorkflowBar({ activeRail, job, preview }: { activeRail: string; job: Jo
     ? ["读取文件", "页面解析", "内容检查", "格式导出"]
     : ["导入", "字段检查", "训练配置", "模型训练", "结果评估"];
   const documentIndex = activeRail === "documents" ? 2 : null;
-  const activeIndex = preview ? 1 : job?.status === "succeeded" ? 4 : job ? 3 : 0;
+  const activeIndex = activeRail === "charts"
+    ? 4
+    : activeRail === "models"
+      ? 3
+      : activeRail === "datasets" && preview
+        ? 1
+        : preview
+          ? 1
+          : job?.status === "succeeded"
+            ? 4
+            : job
+              ? 3
+              : 0;
 
   return (
     <div
@@ -1290,8 +1335,10 @@ type WorkspaceContentProps = {
   trainingResult: TrainingResult | null;
   projectReady: boolean;
   onImport: () => void;
+  onImportArchive: () => void;
   onConfirm: () => void;
   onGoToModels: () => void;
+  onGoToCharts: () => void;
   onExport: () => void;
   onSelectAnalysis: (analysis: string) => void;
   onCreateModelPlan: (payload: TrainingCreate) => void;
@@ -1324,8 +1371,10 @@ function WorkspaceContent({
   trainingResult,
   projectReady,
   onImport,
+  onImportArchive,
   onConfirm,
   onGoToModels,
+  onGoToCharts,
   onExport,
   onSelectAnalysis,
   onCreateModelPlan,
@@ -1340,7 +1389,7 @@ function WorkspaceContent({
       ["integer", "number"].includes(column.inferredType),
     ).length ?? 0;
 
-  if (activeRail === "documents") {
+  if (activeRail === "documents" || (activeRail === "datasets" && documentResult)) {
     return (
       <DocumentWorkspace
         asset={selectedAsset}
@@ -1363,6 +1412,7 @@ function WorkspaceContent({
         trainingResult={trainingResult}
         onSelectAnalysis={onSelectAnalysis}
         onCreatePlan={onCreateModelPlan}
+        onGoToCharts={onGoToCharts}
       />
     );
   }
@@ -1376,7 +1426,7 @@ function WorkspaceContent({
   }
 
   if (activeRail === "tools") {
-    return <ToolsWorkspace onImport={onImport} />;
+    return <ToolsWorkspace onImportFolder={onImport} onImportArchive={onImportArchive} />;
   }
 
   if (!preview && !documentResult) {
@@ -1836,6 +1886,7 @@ function ModelWorkspace({
   trainingResult,
   onSelectAnalysis,
   onCreatePlan,
+  onGoToCharts,
 }: {
   dataset: DatasetVersion | null;
   selectedAnalysis: string;
@@ -1845,6 +1896,7 @@ function ModelWorkspace({
   trainingResult: TrainingResult | null;
   onSelectAnalysis: (analysis: string) => void;
   onCreatePlan: (payload: TrainingCreate) => void;
+  onGoToCharts: () => void;
 }) {
   const [targetColumn, setTargetColumn] = useState("");
   const [featureColumns, setFeatureColumns] = useState<string[]>([]);
@@ -1994,13 +2046,13 @@ function ModelWorkspace({
       ) : activeView === "monitor" ? (
         <section className="workspace-state-view"><BarChart3 aria-hidden="true" size={30} /><h2>{selectedJob ? selectedJob.title : "训练监控"}</h2><p>{selectedJob ? `${statusLabels[selectedJob.status]}，进度 ${selectedJob.progress}%。${selectedJob.message ?? ""}` : "创建数据集并启动训练后，这里显示 Worker 的真实状态。"}</p></section>
       ) : (
-        <TrainingEvaluation result={trainingResult} />
+        <TrainingEvaluation result={trainingResult} onGoToCharts={onGoToCharts} />
       )}
     </div>
   );
 }
 
-function TrainingEvaluation({ result }: { result: TrainingResult | null }) {
+function TrainingEvaluation({ result, onGoToCharts }: { result: TrainingResult | null; onGoToCharts: () => void }) {
   if (!result || result.status !== "succeeded") {
     return <section className="workspace-state-view"><LineChart aria-hidden="true" size={30} /><h2>评估结果</h2><p>{result?.errorMessage ?? "任务完成后，这里显示真实指标、统计表和模型产物路径。"}</p></section>;
   }
@@ -2008,6 +2060,7 @@ function TrainingEvaluation({ result }: { result: TrainingResult | null }) {
     <section className="training-evaluation">
       <div className="section-heading"><div><span className="section-kicker">可追溯结果</span><h2>评估结果</h2></div><span>{result.algorithmId ?? result.method}</span></div>
       <div className="training-metrics">{Object.entries(result.metrics).map(([name, value]) => <span key={name}><small>{name}</small><strong>{value.toFixed(4)}</strong></span>)}</div>
+      <div className="training-result-actions"><button className="primary-button" type="button" onClick={onGoToCharts}><BarChart3 aria-hidden="true" size={15} />查看模型图形</button></div>
       {Object.entries(result.tables).map(([tableName, rows]) => <ResultTable key={tableName} name={tableName} rows={rows} />)}
       {result.artifacts.length > 0 ? <div className="result-artifacts"><h3>输出产物</h3>{result.artifacts.map((artifact) => <div key={artifact.relativePath}><strong>{artifact.description}</strong><code>{artifact.relativePath}</code><span>{artifact.mediaType}</span></div>)}</div> : null}
       {result.warnings.length > 0 ? <div className="result-warnings"><h3>运行提示</h3>{result.warnings.map((warning) => <p key={warning}>{warning}</p>)}</div> : null}
@@ -2037,15 +2090,13 @@ function JobsWorkspace({ jobs, selectedJob }: { jobs: Job[]; selectedJob: Job | 
   );
 }
 
-function ToolsWorkspace({ onImport }: { onImport: () => void }) {
+function ToolsWorkspace({ onImportFolder, onImportArchive }: { onImportFolder: () => void; onImportArchive: () => void }) {
   return (
     <div className="workspace-scroll module-workspace">
       <div className="section-heading"><div><span className="section-kicker">本地能力</span><h2>工具目录</h2></div></div>
       <div className="tool-grid">
-        <button type="button" onClick={onImport}><Import aria-hidden="true" size={20} /><span><strong>导入文件</strong><small>CSV、XLSX、PDF 和压缩包</small></span></button>
-        <button type="button"><FileText aria-hidden="true" size={20} /><span><strong>文档解析</strong><small>文本层、OCR 和结构化输出</small></span></button>
-        <button type="button"><Database aria-hidden="true" size={20} /><span><strong>数据集版本</strong><small>字段确认和 Parquet 导出</small></span></button>
-        <button type="button"><Box aria-hidden="true" size={20} /><span><strong>模型分析</strong><small>统计、机器学习和深度学习</small></span></button>
+        <button type="button" onClick={onImportFolder}><FolderOpen aria-hidden="true" size={20} /><span><strong>打开项目文件夹</strong><small>导入文件夹后自动进入数据工作区</small></span></button>
+        <button type="button" onClick={onImportArchive}><Archive aria-hidden="true" size={20} /><span><strong>解压压缩文件</strong><small>无密码压缩包自动解压并展示数据</small></span></button>
       </div>
     </div>
   );
