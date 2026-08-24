@@ -1,110 +1,47 @@
-import { useEffect, useState } from "react";
-import { BarChart3, Download, ExternalLink } from "lucide-react";
-import type { ChartGenerationResult, ChartSpec, ChartSpecCreate, DatasetVersion, TablePreview } from "@ml-gui/contracts";
+import { useEffect, useMemo } from "react";
+import { BarChart3, ExternalLink, FileImage, FileText } from "lucide-react";
+import type { ChartSpec } from "@ml-gui/contracts";
 
 type ChartWorkspaceProps = {
-  dataset: DatasetVersion | null;
-  preview: TablePreview | null;
   charts: ChartSpec[];
-  onCreateChart: (payload: ChartSpecCreate) => Promise<ChartSpec>;
-  onGenerateChart: (chartId: string) => Promise<ChartGenerationResult>;
-  onGetChartResult: (jobId: string) => Promise<ChartGenerationResult>;
+  selectedChartId: string | null;
+  onSelectChart: (chartId: string) => void;
   getChartArtifactUrl: (jobId: string, relativePath: string) => string;
 };
 
-function ChartProperty({ label, value }: { label: string; value: string }) {
-  return <div className="property-row"><span>{label}</span><strong>{value}</strong></div>;
+const chartTypeLabels: Record<string, string> = {
+  scatter: "预测值与真实值", line: "序列趋势", bar: "分类柱状图", histogram: "分布直方图", boxplot: "分组箱线图", heatmap: "相关性热力图", confusion_matrix: "混淆矩阵", feature_importance: "特征重要性", residual: "残差诊断", cluster_scatter: "聚类样本分布", anova_effect: "方差分析效应",
+};
+
+const statusLabels: Record<string, string> = { draft: "待生成", queued: "排队中", running: "生成中", succeeded: "已完成", failed: "失败" };
+
+function latestCharts(charts: ChartSpec[]): ChartSpec[] {
+  return charts.filter((chart, index, source) => source.findIndex((candidate) => candidate.datasetId === chart.datasetId && candidate.name === chart.name && candidate.chartType === chart.chartType) === index);
 }
 
-export function ChartWorkspace({ dataset, preview, charts, onCreateChart, onGenerateChart, onGetChartResult, getChartArtifactUrl }: ChartWorkspaceProps) {
-  const columns = dataset?.columns ?? [];
-  const numericColumns = columns.filter((column) => ["integer", "number"].includes(column.dataType));
-  const [name, setName] = useState("数据分布图");
-  const [chartType, setChartType] = useState<ChartSpecCreate["chartType"]>("scatter");
-  const [xColumn, setXColumn] = useState("");
-  const [yColumns, setYColumns] = useState<string[]>([]);
-  const [generation, setGeneration] = useState<ChartGenerationResult | null>(null);
-  const [generating, setGenerating] = useState(false);
-  const [selectedSavedChartId, setSelectedSavedChartId] = useState<string | null>(null);
+function artifactLocation(chart: ChartSpec | null, suffix: string): { jobId: string; relativePath: string } | null {
+  const artifactId = chart?.artifactIds.find((artifact) => artifact.endsWith(`:${suffix}`));
+  if (!artifactId) return null;
+  const separator = artifactId.indexOf(":");
+  return separator > 0 ? { jobId: artifactId.slice(0, separator), relativePath: artifactId.slice(separator + 1) } : null;
+}
+
+export function ChartWorkspace({ charts, selectedChartId, onSelectChart, getChartArtifactUrl }: ChartWorkspaceProps) {
+  const visibleCharts = useMemo(() => latestCharts(charts), [charts]);
+  const selectedChart = visibleCharts.find((chart) => chart.id === selectedChartId) ?? visibleCharts[0] ?? null;
+  const image = artifactLocation(selectedChart, "chart.png");
+  const html = artifactLocation(selectedChart, "chart.html");
 
   useEffect(() => {
-    setXColumn((current) => current || numericColumns[0]?.name || columns[0]?.name || "");
-    setYColumns((current) => current.length > 0 ? current : [numericColumns[1]?.name || numericColumns[0]?.name || ""].filter(Boolean));
-  }, [dataset?.id, numericColumns.length, columns.length]);
-
-  // Keep the latest chart for the same dataset and chart type in the primary view.
-  // Historical jobs remain persisted and can be revisited from the job history.
-  const visibleCharts = charts.filter((chart, index, source) => source.findIndex((candidate) => candidate.datasetId === chart.datasetId && candidate.name === chart.name && candidate.chartType === chart.chartType) === index);
-  const savedCharts = visibleCharts.filter((chart) => chart.status === "succeeded" && chart.artifactIds.length > 0);
-  useEffect(() => {
-    setSelectedSavedChartId((current) => current && savedCharts.some((chart) => chart.id === current) ? current : savedCharts[0]?.id ?? null);
-  }, [charts]);
-
-  const selectedSavedChart = savedCharts.find((chart) => chart.id === selectedSavedChartId) ?? null;
-  const savedArtifactId = selectedSavedChart?.artifactIds.find((artifact) => artifact.endsWith(":chart.html")) ?? selectedSavedChart?.artifactIds[0] ?? "";
-  const savedArtifactSeparator = savedArtifactId.indexOf(":");
-  const savedJobId = savedArtifactSeparator > 0 ? savedArtifactId.slice(0, savedArtifactSeparator) : "";
-  const savedRelativePath = savedArtifactSeparator > 0 ? savedArtifactId.slice(savedArtifactSeparator + 1) : "";
-
-  const rows = preview?.rows ?? [];
-  const yColumn = yColumns[0] ?? "";
-  const requiresXAxis = ["scatter", "line", "bar"].includes(chartType);
-  const requiresSingleY = chartType === "histogram";
-  const values = rows.map((row) => Number(row[yColumn])).filter((value) => Number.isFinite(value)).slice(0, 24);
-  const maxValue = Math.max(...values, 1);
-
-  async function saveAndGenerate() {
-    const chart = await onCreateChart({ name: name.trim(), chartType, datasetId: dataset!.id, xColumn: requiresXAxis ? xColumn : null, yColumns: requiresSingleY ? yColumns.slice(0, 1) : yColumns, options: { theme: "cns", showLegend: true, palette: "cns-safe" } });
-    setGenerating(true);
-    try {
-      const queued = await onGenerateChart(chart.id);
-      setGeneration(queued);
-      if (queued.status === "queued" || queued.status === "running") {
-        const timer = window.setInterval(() => {
-          void onGetChartResult(queued.jobId).then((result) => {
-            setGeneration(result);
-            if (["succeeded", "failed", "cancelled"].includes(result.status)) {
-              window.clearInterval(timer);
-              setGenerating(false);
-            }
-          }).catch(() => undefined);
-        }, 1000);
-        window.setTimeout(() => {
-          window.clearInterval(timer);
-          setGenerating(false);
-        }, 3600000);
-      } else {
-        setGenerating(false);
-      }
-    } catch {
-      setGenerating(false);
-    }
-  }
+    if (selectedChart && selectedChart.id !== selectedChartId) onSelectChart(selectedChart.id);
+  }, [onSelectChart, selectedChart, selectedChartId]);
 
   return (
     <div className="workspace-scroll chart-workspace">
-      <section className="chart-intro-band">
-        <div><span className="section-kicker">图形工作区</span><h2>从数据和模型结果生成可追溯图形</h2><p>图形规格会保存数据集版本、字段映射和样式选项，刷新后可以继续编辑。</p></div>
-        <div><span>已保存图形</span><strong>{charts.length}</strong></div>
-      </section>
-      <div className="chart-workspace-grid">
-        <section className="chart-canvas-section">
-          <div className="section-heading"><div><span className="section-kicker">实时预览</span><h2>{name}</h2></div><span>{dataset ? `数据集 v${dataset.version}` : "等待数据集"}</span></div>
-          {visibleCharts.length > 0 ? <div className="saved-chart-panel"><div className="saved-chart-heading"><span>已生成图形</span><strong>{savedCharts.length}/{visibleCharts.length}</strong></div><div className="saved-chart-list">{visibleCharts.map((chart) => <button className={chart.id === selectedSavedChartId ? "saved-chart-item active" : "saved-chart-item"} key={chart.id} type="button" onClick={() => setSelectedSavedChartId(chart.id)}><span>{chart.name}</span><small>{chart.status}</small></button>)}</div>{selectedSavedChart && savedJobId && savedRelativePath ? <div className="saved-chart-preview"><img className="chart-image-preview" src={getChartArtifactUrl(savedJobId, "chart.png")} alt={`${selectedSavedChart.name} 静态预览`} /><div className="chart-artifact-toolbar"><span>静态预览</span><a className="artifact-download-button" href={getChartArtifactUrl(savedJobId, "chart.html")} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" size={14} />打开交互图形</a></div></div> : <p className="chart-empty-hint">训练完成后，诊断图会在这里显示。</p>}</div> : null}
-          {values.length > 0 ? <div className="chart-preview-bars" aria-label="图形预览">{values.map((value, index) => <div key={`${value}-${index}`} className="chart-preview-bar" style={{ height: `${Math.max(8, value / maxValue * 100)}%` }}><span>{value.toFixed(0)}</span></div>)}</div> : <div className="chart-empty-state"><BarChart3 aria-hidden="true" size={30} /><strong>选择数据集后预览图形</strong><span>当前预览使用前 24 条可见记录。</span></div>}
-        </section>
-        <section className="chart-config-section">
-          <div className="section-heading"><div><span className="section-kicker">图形设计</span><h2>字段映射</h2></div></div>
-          <div className="chart-config-form">
-            <label><span>名称</span><input value={name} onChange={(event) => setName(event.target.value)} /></label>
-            <label><span>图形类型</span><select value={chartType} onChange={(event) => setChartType(event.target.value as ChartSpecCreate["chartType"])}><option value="scatter">散点图</option><option value="line">折线图</option><option value="bar">柱状图</option><option value="histogram">直方图</option><option value="boxplot">箱线图</option><option value="heatmap">相关性热力图</option></select></label>
-            <label><span>X 轴</span><select disabled={!requiresXAxis} value={requiresXAxis ? xColumn : ""} onChange={(event) => setXColumn(event.target.value)}><option value="">{requiresXAxis ? "请选择字段" : "当前图形不使用 X 轴"}</option>{requiresXAxis ? columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>) : null}</select></label>
-            <label><span>{requiresSingleY ? "Y 轴字段" : "Y 轴字段"}</span><select multiple={!requiresSingleY} size={requiresSingleY ? 1 : Math.min(5, Math.max(2, numericColumns.length))} value={requiresSingleY ? yColumns.slice(0, 1) : yColumns} onChange={(event) => setYColumns(Array.from(event.target.selectedOptions, (option) => option.value))}>{numericColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
-            <div className="chart-source-summary"><ChartProperty label="数据集" value={dataset ? `v${dataset.version}` : "未选择"} /><ChartProperty label="来源字段" value={`${xColumn || "未选择"} / ${yColumns.join(", ") || "未选择"}`} /><ChartProperty label="预览记录" value={String(rows.length)} /></div>
-            <button className="primary-button" disabled={generating || !dataset || (requiresXAxis && !xColumn) || yColumns.length === 0 || !name.trim()} type="button" onClick={() => void saveAndGenerate()}><BarChart3 aria-hidden="true" size={15} />{generating ? "正在生成" : "保存并生成图形"}</button>
-            {generation ? <div className="chart-generation-state"><ChartProperty label="任务状态" value={generation.status} />{generation.errorMessage ? <p className="chart-generation-error">{generation.errorType}: {generation.errorMessage}</p> : null}{generation.warnings.map((warning) => <p key={warning}>{warning}</p>)}{generation.status === "succeeded" && generation.jobId ? <div className="chart-artifact-preview"><div className="chart-artifact-toolbar"><span>静态预览</span><a className="artifact-download-button" href={getChartArtifactUrl(generation.jobId, "chart.html")} target="_blank" rel="noreferrer"><ExternalLink aria-hidden="true" size={14} />打开交互图形</a></div><img className="chart-image-preview" src={getChartArtifactUrl(generation.jobId, "chart.png")} alt="当前图形静态预览" /></div> : null}{generation.artifacts.map((artifact) => <a className="artifact-download-button" key={artifact.relativePath} href={getChartArtifactUrl(generation.jobId, artifact.relativePath)} download><Download aria-hidden="true" size={14} />下载 {artifact.format.toUpperCase()}</a>)}</div> : null}
-          </div>
-        </section>
+      <section className="chart-intro-band"><div><span className="section-kicker">模型结果图形</span><h2>{selectedChart ? selectedChart.name : "等待模型生成图形"}</h2><p>图形由当前模型的诊断规格生成。选择左侧图形后，右侧只展示对应结果和可下载产物。</p></div><div><span>当前结果</span><strong>{visibleCharts.length}</strong></div></section>
+      <div className="chart-result-layout">
+        <aside className="chart-result-list" aria-label="模型图形列表"><div className="chart-list-heading"><span>图形目录</span><strong>{visibleCharts.length}</strong></div>{visibleCharts.length === 0 ? <div className="chart-empty-state compact"><BarChart3 aria-hidden="true" size={25} /><strong>训练完成后显示模型图形</strong><span>模型会根据任务类型生成推荐诊断图。</span></div> : visibleCharts.map((chart) => <button className={chart.id === selectedChart?.id ? "chart-result-item active" : "chart-result-item"} key={chart.id} type="button" onClick={() => onSelectChart(chart.id)}><BarChart3 aria-hidden="true" size={17} /><span><strong>{chart.name}</strong><small>{chartTypeLabels[chart.chartType] ?? chart.chartType}</small></span><em data-status={chart.status}>{statusLabels[chart.status] ?? chart.status}</em></button>)}</aside>
+        <section className="chart-result-view" aria-live="polite">{selectedChart ? <><header className="chart-result-header"><div><span className="section-kicker">{chartTypeLabels[selectedChart.chartType] ?? selectedChart.chartType}</span><h2>{selectedChart.name}</h2><p>{statusLabels[selectedChart.status] ?? selectedChart.status}</p></div><div className="chart-result-actions">{image ? <a className="artifact-download-button primary" href={getChartArtifactUrl(image.jobId, image.relativePath)} download><FileImage aria-hidden="true" size={14} />保存生成图形</a> : null}{html ? <a className="artifact-download-button" href={getChartArtifactUrl(html.jobId, html.relativePath)} download><ExternalLink aria-hidden="true" size={14} />下载交互图形</a> : null}</div></header>{image ? <div className="chart-result-image-frame"><img src={getChartArtifactUrl(image.jobId, image.relativePath)} alt={`${selectedChart.name} 图形`} /></div> : <div className="chart-empty-state"><FileText aria-hidden="true" size={30} /><strong>{statusLabels[selectedChart.status] ?? selectedChart.status}</strong><span>图形 Worker 完成后，静态预览会自动出现。</span></div>}</> : <div className="chart-empty-state"><BarChart3 aria-hidden="true" size={34} /><strong>尚未选择模型图形</strong><span>完成一次模型训练后，诊断图会出现在这里。</span></div>}</section>
       </div>
     </div>
   );

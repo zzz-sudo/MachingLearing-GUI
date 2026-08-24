@@ -175,6 +175,7 @@ export function App() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [trainingResult, setTrainingResult] = useState<TrainingResult | null>(null);
   const [charts, setCharts] = useState<ChartSpec[]>([]);
+  const [selectedChartId, setSelectedChartId] = useState<string | null>(null);
   const [algorithms, setAlgorithms] = useState<AlgorithmDefinition[]>([]);
   const [prompt, setPrompt] = useState("");
   const [health, setHealth] = useState<ServiceHealth | null>(null);
@@ -238,7 +239,9 @@ export function App() {
         setDataset(datasets[0] ?? null);
         const projectJobs = await workspaceClient.listJobs(project.id);
         setJobs(projectJobs);
-        setCharts(await workspaceClient.listCharts(project.id));
+        const projectCharts = await workspaceClient.listCharts(project.id);
+        setCharts(projectCharts);
+        setSelectedChartId(projectCharts.find((chart) => chart.status === "succeeded")?.id ?? projectCharts[0]?.id ?? null);
         setSelectedJobId(projectJobs[0]?.id ?? null);
         for (const asset of projectAssets) {
           if (asset.name.toLowerCase().endsWith(".pdf")) {
@@ -296,7 +299,10 @@ export function App() {
       })
       .catch(() => undefined);
     const refreshCharts = () => void workspaceClient.listCharts(selectedProject.id)
-      .then(setCharts)
+      .then((nextCharts) => {
+        setCharts(nextCharts);
+        setSelectedChartId((current) => current ?? nextCharts.find((chart) => chart.status === "succeeded")?.id ?? nextCharts[0]?.id ?? null);
+      })
       .catch(() => undefined);
     refreshJobs();
     refreshCharts();
@@ -548,6 +554,7 @@ export function App() {
             selectedAnalysis={selectedAnalysis}
             algorithms={algorithms}
             charts={charts}
+            selectedChartId={selectedChartId}
             onImport={() => projectReady && fileInputRef.current?.click()}
             onSelectAnalysis={(analysis) => {
               setSelectedAnalysis(analysis);
@@ -555,6 +562,10 @@ export function App() {
             }}
             onSelectFile={openProjectFile}
             onSelectJob={setSelectedJobId}
+            onSelectChart={(chartId) => {
+              setSelectedChartId(chartId);
+              setActiveRail("charts");
+            }}
             onShowHiddenChange={setShowHidden}
           />
         </Panel>
@@ -591,6 +602,7 @@ export function App() {
               selectedAnalysis={selectedAnalysis}
               algorithms={algorithms}
               charts={charts}
+              selectedChartId={selectedChartId}
               modelPlanStatus={modelPlanStatus}
               jobs={jobs}
               trainingResult={trainingResult}
@@ -604,6 +616,10 @@ export function App() {
               onCreateChart={createChart}
               onGenerateChart={generateChart}
               onGetChartResult={workspaceClient.getChartResult.bind(workspaceClient)}
+              onSelectChart={(chartId) => {
+                setSelectedChartId(chartId);
+                setActiveRail("charts");
+              }}
               getChartArtifactUrl={workspaceClient.getChartArtifactUrl.bind(workspaceClient)}
             />
             <CommandDock
@@ -652,7 +668,7 @@ function GlobalRail({ activeItem, onChange, onOpenUpdateCenter }: GlobalRailProp
   return (
     <nav className="global-rail" aria-label="全局导航">
       <button className="brand-button" title="MachingLearing GUI" type="button">
-        ML
+        <img src="/touxiang.jpg" alt="MachingLearing GUI" />
       </button>
 
       <div className="rail-actions">
@@ -817,10 +833,12 @@ type ContextSidebarProps = {
   selectedAnalysis: string;
   algorithms: AlgorithmDefinition[];
   charts: ChartSpec[];
+  selectedChartId: string | null;
   onImport: () => void;
   onSelectAnalysis: (analysis: string) => void;
   onSelectFile: (file: ProjectFileNode) => void;
   onSelectJob: (jobId: string) => void;
+  onSelectChart: (chartId: string) => void;
   onShowHiddenChange: (value: boolean) => void;
 };
 
@@ -838,10 +856,12 @@ function ContextSidebar({
   selectedAnalysis,
   algorithms,
   charts,
+  selectedChartId,
   onImport,
   onSelectAnalysis,
   onSelectFile,
   onSelectJob,
+  onSelectChart,
   onShowHiddenChange,
 }: ContextSidebarProps) {
   const [searchText, setSearchText] = useState("");
@@ -945,7 +965,7 @@ function ContextSidebar({
           <SectionTitle icon={BarChart3} title="已保存图形" />
           <div className="analysis-nav-list">
             {visibleCharts.length === 0 ? <p className="sidebar-empty">还没有保存的图形规格</p> : visibleCharts.map((chart) => (
-              <button key={chart.id} className="analysis-nav-row" type="button">
+              <button key={chart.id} className="analysis-nav-row" data-active={chart.id === selectedChartId} type="button" onClick={() => onSelectChart(chart.id)}>
                 <BarChart3 aria-hidden="true" size={16} />
                 <span><strong>{chart.name}</strong><small>{chart.chartType}</small></span>
               </button>
@@ -1265,6 +1285,7 @@ type WorkspaceContentProps = {
   selectedAnalysis: string;
   algorithms: AlgorithmDefinition[];
   charts: ChartSpec[];
+  selectedChartId: string | null;
   modelPlanStatus: string;
   trainingResult: TrainingResult | null;
   projectReady: boolean;
@@ -1277,6 +1298,7 @@ type WorkspaceContentProps = {
   onCreateChart: (payload: ChartSpecCreate) => Promise<ChartSpec>;
   onGenerateChart: (chartId: string) => Promise<ChartGenerationResult>;
   onGetChartResult: (jobId: string) => Promise<ChartGenerationResult>;
+  onSelectChart: (chartId: string) => void;
   getChartArtifactUrl: (jobId: string, relativePath: string) => string;
 };
 
@@ -1297,6 +1319,7 @@ function WorkspaceContent({
   selectedAnalysis,
   algorithms,
   charts,
+  selectedChartId,
   modelPlanStatus,
   trainingResult,
   projectReady,
@@ -1309,6 +1332,7 @@ function WorkspaceContent({
   onCreateChart,
   onGenerateChart,
   onGetChartResult,
+  onSelectChart,
   getChartArtifactUrl,
 }: WorkspaceContentProps) {
   const numericColumnCount =
@@ -1344,7 +1368,7 @@ function WorkspaceContent({
   }
 
   if (activeRail === "charts") {
-    return <ChartWorkspace dataset={dataset} preview={preview} charts={charts} onCreateChart={onCreateChart} onGenerateChart={onGenerateChart} onGetChartResult={onGetChartResult} getChartArtifactUrl={getChartArtifactUrl} />;
+    return <ChartWorkspace charts={charts} selectedChartId={selectedChartId} onSelectChart={onSelectChart} getChartArtifactUrl={getChartArtifactUrl} />;
   }
 
   if (activeRail === "jobs") {
