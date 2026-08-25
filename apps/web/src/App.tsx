@@ -570,6 +570,7 @@ export function App() {
       />
 
       <PanelGroup direction="horizontal" className="workspace-panels">
+        {activeRail !== "jobs" ? <>
         <Panel defaultSize={19} minSize={15} maxSize={28}>
           <ContextSidebar
             activeRail={activeRail}
@@ -592,7 +593,11 @@ export function App() {
               setActiveRail("models");
             }}
             onSelectFile={openProjectFile}
-            onSelectJob={setSelectedJobId}
+            onSelectJob={(jobId) => {
+              setSelectedJobId(jobId);
+              setActiveRail("jobs");
+            }}
+            onShowAllJobs={() => setActiveRail("jobs")}
             onSelectChart={(chartId) => {
               setSelectedChartId(chartId);
               setActiveRail("charts");
@@ -602,8 +607,9 @@ export function App() {
         </Panel>
 
         <ResizeHandle />
+        </> : null}
 
-        <Panel defaultSize={56} minSize={40}>
+        <Panel defaultSize={activeRail === "jobs" ? 100 : 56} minSize={activeRail === "jobs" ? 70 : 40}>
           <main className="main-workspace">
             <WorkspaceHeader
               activeRail={activeRail}
@@ -871,6 +877,7 @@ type ContextSidebarProps = {
   onSelectAnalysis: (analysis: string) => void;
   onSelectFile: (file: ProjectFileNode) => void;
   onSelectJob: (jobId: string) => void;
+  onShowAllJobs: () => void;
   onSelectChart: (chartId: string) => void;
   onShowHiddenChange: (value: boolean) => void;
 };
@@ -894,6 +901,7 @@ function ContextSidebar({
   onSelectAnalysis,
   onSelectFile,
   onSelectJob,
+  onShowAllJobs,
   onSelectChart,
   onShowHiddenChange,
 }: ContextSidebarProps) {
@@ -1060,8 +1068,8 @@ function ContextSidebar({
       </section>
       )}
 
-      {activeRail === "workspace" || activeRail === "jobs" ? <section className="sidebar-section history-section">
-        <SectionTitle icon={History} title="任务历史" actionLabel="查看全部" />
+      {activeRail === "workspace" ? <section className="sidebar-section history-section">
+        <SectionTitle icon={History} title="任务历史" actionLabel="查看全部" onAction={onShowAllJobs} />
         <div className="job-list">
           {jobs.map((job) => (
             <button
@@ -1094,10 +1102,11 @@ type SectionTitleProps = {
   icon: typeof History;
   title: string;
   actionLabel?: string;
+  onAction?: () => void;
   action?: ReactNode;
 };
 
-function SectionTitle({ icon: Icon, title, actionLabel, action }: SectionTitleProps) {
+function SectionTitle({ icon: Icon, title, actionLabel, onAction, action }: SectionTitleProps) {
   return (
     <div className="section-title">
       <span>
@@ -1105,7 +1114,7 @@ function SectionTitle({ icon: Icon, title, actionLabel, action }: SectionTitlePr
         {title}
       </span>
       {action ?? (actionLabel ? (
-        <button type="button">{actionLabel}</button>
+        <button type="button" onClick={onAction}>{actionLabel}</button>
       ) : null)}
     </div>
   );

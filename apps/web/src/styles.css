@@ -340,8 +340,12 @@ textarea:focus-visible {
 }
 
 .history-section {
+  display: flex;
+  flex: 1 1 0;
+  flex-direction: column;
   min-height: 0;
   overflow: hidden;
+  border-top: 1px solid var(--line);
 }
 
 .section-title {
@@ -414,8 +418,10 @@ textarea:focus-visible {
 }
 
 .sidebar-fill-section {
+  flex: 1 1 0;
   min-height: 0;
-  overflow: auto;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .section-icon-action {
@@ -557,8 +563,10 @@ textarea:focus-visible {
 }
 
 .job-list {
-  max-height: 224px;
-  overflow: auto;
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 
 .job-row {
