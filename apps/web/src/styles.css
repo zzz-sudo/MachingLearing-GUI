@@ -1957,6 +1957,99 @@ textarea:focus-visible {
   padding-top: 14px;
 }
 
+.history-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 4px 2px 14px;
+}
+
+.history-heading h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.history-heading p {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.history-filter {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.history-filter select {
+  min-width: 130px;
+  height: 32px;
+  padding: 0 8px;
+  border: 1px solid var(--line-strong);
+  border-radius: 4px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+.history-metrics {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+}
+
+.history-empty {
+  display: flex;
+  min-height: 280px;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 9px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 6px;
+  background: var(--surface);
+  color: var(--muted);
+  text-align: center;
+}
+
+.history-empty svg {
+  color: var(--accent);
+}
+
+.history-empty h3 {
+  margin: 0;
+  color: var(--text);
+  font-size: 14px;
+}
+
+.history-empty p {
+  max-width: 420px;
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.history-list-section {
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.history-list-section .section-heading {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.history-list-section .module-list {
+  border-bottom: 0;
+}
+
 .module-list {
   max-width: 840px;
   padding: 8px 14px;
@@ -2524,6 +2617,23 @@ tbody tr:hover {
 }
 
 @container (max-width: 760px) {
+  .history-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .history-filter {
+    justify-content: space-between;
+  }
+
+  .history-filter select {
+    flex: 1;
+  }
+
+  .history-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .analysis-method-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2553,6 +2663,10 @@ tbody tr:hover {
 }
 
 @container (max-width: 440px) {
+  .history-metrics {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
   .analysis-method-grid {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -2108,12 +2108,51 @@ function ResultTable({ name, rows }: { name: string; rows: Array<Record<string, 
 }
 
 function JobsWorkspace({ jobs, selectedJob }: { jobs: Job[]; selectedJob: Job | null }) {
+  const [statusFilter, setStatusFilter] = useState<Job["status"] | "all">("all");
+  const visibleJobs = statusFilter === "all" ? jobs : jobs.filter((job) => job.status === statusFilter);
+  const runningCount = jobs.filter((job) => ["queued", "running", "waiting_confirmation"].includes(job.status)).length;
+  const completedCount = jobs.filter((job) => job.status === "succeeded").length;
+  const failedCount = jobs.filter((job) => ["failed", "cancelled"].includes(job.status)).length;
   return (
     <div className="workspace-scroll module-workspace">
-      <div className="section-heading"><div><span className="section-kicker">运行记录</span><h2>任务队列</h2></div><span>{jobs.length} 个任务</span></div>
-      <div className="module-list">
-        {jobs.map((item) => <ActivityRow key={item.id} time={formatTime(item.updatedAt)} title={item.title} detail={item.message ?? statusLabels[item.status]} state={item.id === selectedJob?.id ? "active" : "complete"} />)}
+      <div className="history-heading">
+        <div>
+          <span className="section-kicker">本地 Worker 记录</span>
+          <h2>任务历史</h2>
+          <p>训练、图形生成和数据处理任务会在这里留下可追溯记录。</p>
+        </div>
+        <label className="history-filter">
+          <span>状态</span>
+          <select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as Job["status"] | "all")}>
+            <option value="all">全部任务</option>
+            <option value="running">运行中</option>
+            <option value="succeeded">已完成</option>
+            <option value="failed">失败或取消</option>
+          </select>
+        </label>
       </div>
+
+      <div className="history-metrics" aria-label="任务统计">
+        <Metric label="全部任务" value={String(jobs.length)} detail="当前工作区" />
+        <Metric label="运行中" value={String(runningCount)} detail="排队、运行或等待确认" />
+        <Metric label="已完成" value={String(completedCount)} detail="可查看训练结果" />
+        <Metric label="失败或取消" value={String(failedCount)} detail="需要检查错误信息" />
+      </div>
+
+      {visibleJobs.length === 0 ? (
+        <section className="history-empty" aria-live="polite">
+          <History aria-hidden="true" size={32} />
+          <h3>{jobs.length === 0 ? "还没有任务记录" : "没有符合条件的任务"}</h3>
+          <p>{jobs.length === 0 ? "导入一个表格, 确认字段后进入模型页面即可创建第一个任务。" : "尝试切换状态筛选, 或等待新的任务创建。"}</p>
+        </section>
+      ) : (
+        <section className="history-list-section">
+          <div className="section-heading"><div><span className="section-kicker">任务明细</span><h3>{visibleJobs.length} 条记录</h3></div><span>{selectedJob ? `当前选择: ${selectedJob.title}` : "选择一条记录查看详情"}</span></div>
+          <div className="module-list">
+            {visibleJobs.map((item) => <ActivityRow key={item.id} time={formatTime(item.updatedAt)} title={item.title} detail={item.message ?? statusLabels[item.status]} state={item.id === selectedJob?.id ? "active" : "complete"} />)}
+          </div>
+        </section>
+      )}
     </div>
   );
 }
