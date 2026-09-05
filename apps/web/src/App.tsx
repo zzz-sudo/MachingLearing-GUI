@@ -11,6 +11,7 @@ import type {
   DatasetVersion,
   DocumentParseResult,
   ImportResult,
+  OpenClawChatMessage,
   Job,
   Project,
   ProjectFileNode,
@@ -28,7 +29,6 @@ import {
   Braces,
   ChevronDown,
   ChevronRight,
-  CircleStop,
   Database,
   Download,
   Eye,
@@ -45,13 +45,11 @@ import {
   Layers3,
   LineChart,
   ListTree,
-  MessageSquareText,
   Network,
   PanelRightClose,
   Play,
   Search,
   Settings,
-  SlidersHorizontal,
   Sparkles,
   Sigma,
   Wrench,
@@ -142,6 +140,9 @@ function buildAlgorithmGroups(algorithms: AlgorithmDefinition[], searchText: str
   const groups = new Map<AlgorithmDefinition["taskType"], Map<string, AlgorithmDefinition[]>>();
   const normalized = searchText.trim().toLocaleLowerCase("zh-CN");
   for (const algorithm of algorithms) {
+    if (algorithm.taskType === "exploration") {
+      continue;
+    }
     const searchable = `${algorithm.name} ${algorithm.id} ${algorithm.family} ${algorithm.description}`.toLocaleLowerCase("zh-CN");
     if (normalized && !searchable.includes(normalized)) {
       continue;
@@ -171,7 +172,6 @@ const statusLabels: Record<Job["status"], string> = {
 export function App() {
   const [activeRail, setActiveRail] = useState("workspace");
   const [activeInspector, setActiveInspector] = useState("properties");
-  const [activeMode, setActiveMode] = useState("task");
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [jobs, setJobs] = useState<Job[]>([]);
   const [trainingResult, setTrainingResult] = useState<TrainingResult | null>(null);
@@ -193,6 +193,10 @@ export function App() {
   const [dataset, setDataset] = useState<DatasetVersion | null>(null);
   const [documentResult, setDocumentResult] = useState<DocumentParseResult | null>(null);
   const [fieldTypes, setFieldTypes] = useState<Record<string, DatasetColumnSpec["dataType"]>>({});
+  const [missingValueStrategy, setMissingValueStrategy] = useState<"keep" | "median" | "mode">("keep");
+  const [chatMessages, setChatMessages] = useState<OpenClawChatMessage[]>([]);
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatError, setChatError] = useState<string | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [importing, setImporting] = useState(false);
   const [importError, setImportError] = useState<WorkspaceError | null>(null);
@@ -484,7 +488,7 @@ export function App() {
         name: column.name,
         dataType: fieldTypes[column.name] ?? "text",
       }));
-      setDataset(await workspaceClient.createDataset(selectedProject.id, preview.assetId, columns));
+      setDataset(await workspaceClient.createDataset(selectedProject.id, preview.assetId, columns, missingValueStrategy));
     } catch (error: unknown) {
       const workspaceError = error instanceof WorkspaceClientError
         ? error.workspaceError
@@ -524,13 +528,25 @@ export function App() {
     return workspaceClient.generateChart(selectedProject.id, chartId);
   }
 
-  function submitPrompt() {
+  async function submitPrompt() {
     const message = prompt.trim();
     if (!message) {
       return;
     }
 
     setPrompt("");
+    const nextMessages: OpenClawChatMessage[] = [...chatMessages, { role: "user", content: message }];
+    setChatMessages(nextMessages);
+    setChatBusy(true);
+    setChatError(null);
+    try {
+      const result = await workspaceClient.sendOpenClawChat(selectedProject.id, { messages: nextMessages });
+      setChatMessages((current) => [...current, result.message]);
+    } catch (error: unknown) {
+      setChatError(error instanceof WorkspaceClientError ? error.workspaceError.message : error instanceof Error ? error.message : "OpenClaw 对话失败");
+    } finally {
+      setChatBusy(false);
+    }
   }
 
   function openImportPicker(directory: boolean) {
@@ -643,6 +659,8 @@ export function App() {
               modelPlanStatus={modelPlanStatus}
               jobs={jobs}
               trainingResult={trainingResult}
+              missingValueStrategy={missingValueStrategy}
+              onMissingValueStrategyChange={setMissingValueStrategy}
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
               onGoToModels={() => setActiveRail("models")}
@@ -662,11 +680,12 @@ export function App() {
               getChartArtifactUrl={workspaceClient.getChartArtifactUrl.bind(workspaceClient)}
             />
             <CommandDock
-              activeMode={activeMode}
               prompt={prompt}
-              onModeChange={setActiveMode}
               onPromptChange={setPrompt}
               onSubmit={submitPrompt}
+              messages={chatMessages}
+              busy={chatBusy}
+              error={chatError}
             />
           </main>
         </Panel>
@@ -686,6 +705,7 @@ export function App() {
             selectedFile={selectedProjectFile}
             selectedAnalysis={selectedAnalysis}
             algorithms={algorithms}
+            trainingResult={trainingResult}
             fieldTypes={fieldTypes}
             onFieldTypeChange={(name, dataType) => setFieldTypes((current) => ({ ...current, [name]: dataType }))}
             onTabChange={setActiveInspector}
@@ -706,9 +726,9 @@ type GlobalRailProps = {
 function GlobalRail({ activeItem, onChange, onOpenUpdateCenter }: GlobalRailProps) {
   return (
     <nav className="global-rail" aria-label="全局导航">
-      <button className="brand-button" title="MachingLearing GUI" type="button">
+      <div className="brand-button" title="MachingLearing GUI">
         <img src="/touxiang.jpg" alt="MachingLearing GUI" />
-      </button>
+      </div>
 
       <div className="rail-actions">
         {railItems.map((item) => {
@@ -946,10 +966,10 @@ function ContextSidebar({
       <div className="sidebar-header">
         <div>
           <span className="section-kicker">当前工作区</span>
-          <button className="project-switcher" type="button">
+          <div className="project-switcher" role="status">
             <span>{project.name}</span>
             <ChevronDown aria-hidden="true" size={15} />
-          </button>
+          </div>
         </div>
         <button
           className="icon-button"
@@ -1018,8 +1038,6 @@ function ContextSidebar({
           <SectionTitle icon={Wrench} title="可用工具" />
           <div className="analysis-nav-list">
             <SidebarAction icon={Import} label="导入和解压" detail="文件与压缩包" onClick={onImport} />
-            <SidebarAction icon={FileText} label="文档解析" detail="PDF 和 OCR" onClick={() => undefined} />
-            <SidebarAction icon={Database} label="数据集导出" detail="Parquet" onClick={() => undefined} />
           </div>
         </section>
       ) : (
@@ -1342,6 +1360,8 @@ type WorkspaceContentProps = {
   selectedChartId: string | null;
   modelPlanStatus: string;
   trainingResult: TrainingResult | null;
+  missingValueStrategy: "keep" | "median" | "mode";
+  onMissingValueStrategyChange: (value: "keep" | "median" | "mode") => void;
   projectReady: boolean;
   onImport: () => void;
   onImportArchive: () => void;
@@ -1378,6 +1398,8 @@ function WorkspaceContent({
   selectedChartId,
   modelPlanStatus,
   trainingResult,
+  missingValueStrategy,
+  onMissingValueStrategyChange,
   projectReady,
   onImport,
   onImportArchive,
@@ -1464,12 +1486,6 @@ function WorkspaceContent({
           </div>
         </div>
         <div className="task-controls">
-          {!preview ? (
-            <button className="secondary-button" type="button">
-              <CircleStop aria-hidden="true" size={15} />
-              停止
-            </button>
-          ) : null}
           <button className="primary-button" type="button" onClick={dataset ? onGoToModels : onConfirm} disabled={!preview || confirming || previewIsProjectFile}>
             <Play aria-hidden="true" size={15} />
             {previewIsProjectFile ? "项目文件只读预览" : preview ? confirming ? "正在创建" : dataset ? "前往模型训练" : "确认字段" : "继续运行"}
@@ -1488,23 +1504,23 @@ function WorkspaceContent({
       <section className="metrics-strip" aria-label="数据集摘要">
         <Metric
           label="数据行"
-          value={documentResult ? String(documentResult.pageCount) : preview ? preview.rowCount.toLocaleString("zh-CN") : "48,216"}
-          detail={documentResult ? "PDF 页数" : preview ? `预览前 ${preview.rows.length} 行` : "已过滤 126 行"}
+          value={documentResult ? String(documentResult.pageCount) : preview ? preview.rowCount.toLocaleString("zh-CN") : "0"}
+          detail={documentResult ? "PDF 页数" : preview ? `预览前 ${preview.rows.length} 行` : "尚未加载数据"}
         />
         <Metric
           label="字段"
-          value={documentResult ? documentResult.pdfType : preview ? String(preview.columnCount) : "24"}
-          detail={documentResult ? `OCR 已处理 ${documentResult.ocrPages.length} 页` : preview ? `数值 ${numericColumnCount}, 其他 ${preview.columnCount - numericColumnCount}` : "数值 15, 类别 9"}
+          value={documentResult ? documentResult.pdfType : preview ? String(preview.columnCount) : "0"}
+          detail={documentResult ? `OCR 已处理 ${documentResult.ocrPages.length} 页` : preview ? `数值 ${numericColumnCount}, 其他 ${preview.columnCount - numericColumnCount}` : "尚未加载数据"}
         />
         <Metric
           label="文件格式"
-          value={documentResult ? "PDF" : preview?.format.toUpperCase() ?? "XLSX"}
-          detail={documentResult?.engine ?? preview?.sheetName ?? preview?.encoding ?? "销售数据集 v3"}
+          value={documentResult ? "PDF" : preview?.format.toUpperCase() ?? "未选择"}
+          detail={documentResult?.engine ?? preview?.sheetName ?? preview?.encoding ?? ""}
         />
         <Metric
           label="当前状态"
-          value={documentResult ? documentResult.status : preview ? "待检查" : "训练中"}
-          detail={documentResult ? (documentResult.status === "ocr_required" ? "等待 OCR Worker" : "文档已解析") : preview ? "请确认字段类型" : "验证 R2 0.872"}
+          value={documentResult ? documentResult.status : preview ? "待检查" : job ? statusLabels[job.status] : "空闲"}
+          detail={documentResult ? (documentResult.status === "ocr_required" ? "等待 OCR Worker" : "文档已解析") : preview ? "请确认字段类型" : job?.message ?? "尚未创建任务"}
         />
       </section>
 
@@ -1522,10 +1538,6 @@ function WorkspaceContent({
             <h2>{preview?.sourceName ?? "销售数据集 v3"}</h2>
           </div>
           <div className="content-actions">
-            <button className="icon-button" title="筛选字段" type="button">
-              <SlidersHorizontal aria-hidden="true" size={16} />
-              <span className="sr-only">筛选字段</span>
-            </button>
             <button className="secondary-button" type="button" onClick={onImport} disabled={importing || !projectReady}>
               <Import aria-hidden="true" size={15} />
               {importing ? "正在导入" : projectReady ? "导入数据" : "正在打开项目"}
@@ -1584,28 +1596,35 @@ function WorkspaceContent({
         </div>
       </section>}
 
-      <section className="content-section activity-section">
-        <div className="content-heading">
-          <div>
-            <span className="section-kicker">执行记录</span>
-            <h2>{preview ? "导入活动" : "训练活动"}</h2>
+      {preview ? (
+        <section className="content-section data-quality-section">
+          <div className="content-heading">
+            <div>
+              <span className="section-kicker">字段检查</span>
+              <h2>数据质量与空值处理</h2>
+            </div>
+            <label className="inline-select">
+              <span>创建版本时的空值策略</span>
+              <select value={missingValueStrategy} onChange={(event) => onMissingValueStrategyChange(event.target.value as "keep" | "median" | "mode")}>
+                <option value="keep">保留空值</option>
+                <option value="median">数值中位数, 文本众数</option>
+                <option value="mode">全部使用众数</option>
+              </select>
+            </label>
           </div>
-          <button className="text-button" type="button">
-            查看完整日志
-          </button>
-        </div>
-        <div className="activity-list">
-          {preview ? (
-            <>
-              <ActivityRow time="刚刚" title="原始文件已保存" detail={`${preview.sourceName}, SHA-256 已记录`} state="complete" />
-              <ActivityRow time="刚刚" title="表格结构已读取" detail={`${preview.columnCount} 个字段, ${preview.rowCount.toLocaleString("zh-CN")} 行`} state="complete" />
-              <ActivityRow time="当前" title="等待字段确认" detail="确认字段类型后可创建数据集版本" state="active" />
-            </>
-          ) : job ? (
-            <ActivityRow time={formatTime(job.updatedAt)} title={job.title} detail={job.message ?? statusLabels[job.status]} state={job.status === "running" ? "active" : "complete"} />
-          ) : <ActivityRow time="当前" title="暂无执行记录" detail="创建训练任务后显示真实 Worker 状态" state="active" />}
-        </div>
-      </section>
+          <div className="quality-summary">
+            <Metric label="空值单元格" value={String(preview.columns.reduce((total, column) => total + column.nullCount, 0))} detail="来自当前文件" />
+            <Metric label="有空值字段" value={String(preview.columns.filter((column) => column.nullCount > 0).length)} detail={`共 ${preview.columnCount} 个字段`} />
+          </div>
+          <div className="quality-table-shell">
+            <table>
+              <thead><tr><th>字段</th><th>推断类型</th><th>空值数</th><th>空值率</th></tr></thead>
+              <tbody>{preview.columns.map((column) => <tr key={column.name}><td>{column.name}</td><td>{column.inferredType}</td><td className="number-cell">{column.nullCount}</td><td className="number-cell">{preview.rowCount ? `${((column.nullCount / preview.rowCount) * 100).toFixed(2)}%` : "0%"}</td></tr>)}</tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
+
     </div>
   );
 }
@@ -2285,6 +2304,7 @@ type InspectorPanelProps = {
   selectedFile: ProjectFileNode | null;
   selectedAnalysis: string;
   algorithms: AlgorithmDefinition[];
+  trainingResult: TrainingResult | null;
   fieldTypes: Record<string, DatasetColumnSpec["dataType"]>;
   onFieldTypeChange: (name: string, dataType: DatasetColumnSpec["dataType"]) => void;
   onTabChange: (tab: string) => void;
@@ -2302,6 +2322,7 @@ function InspectorPanel({
   selectedFile,
   selectedAnalysis,
   algorithms,
+  trainingResult,
   fieldTypes,
   onFieldTypeChange,
   onTabChange,
@@ -2309,7 +2330,6 @@ function InspectorPanel({
   const tabs = [
     { id: "properties", label: "属性" },
     { id: "preview", label: "预览" },
-    { id: "changes", label: "变更" },
   ];
 
   return (
@@ -2342,14 +2362,6 @@ function InspectorPanel({
             {documentResult ? <InspectorSection title="页面范围"><PropertyRow label="总页数" value={String(documentResult.pageCount)} /><PropertyRow label="已 OCR" value={String(documentResult.ocrPages.length)} /></InspectorSection> : null}
             {preview ? <InspectorSection title="表格范围"><PropertyRow label="总行数" value={preview.rowCount.toLocaleString("zh-CN")} /><PropertyRow label="字段数" value={String(preview.columnCount)} /></InspectorSection> : null}
           </>
-        ) : activeTab === "changes" ? (
-          <>
-            <InspectorSection title="当前会话变更">
-              <InspectorNotice icon={Import} title="文件树已同步" detail="目录、隐藏项和资产关系" />
-              <InspectorNotice icon={FileText} title="预览状态已更新" detail={selectedFile?.name ?? selectedAsset?.name ?? "等待选择文件"} />
-              <InspectorNotice icon={Box} title="分析配置" detail={algorithms.find((item) => item.id === selectedAnalysis)?.name ?? "尚未选择"} />
-            </InspectorSection>
-          </>
         ) : (
         <>
         {activeRail === "models" ? <InspectorSection title="分析配置">
@@ -2364,15 +2376,15 @@ function InspectorPanel({
             <span style={{ width: `${preview ? 100 : job?.progress ?? 0}%` }} />
           </div>
           <PropertyRow label="运行位置" value="本地 Worker" />
-          <PropertyRow label="更新时间" value="今天 14:33" />
+          <PropertyRow label="更新时间" value={job ? formatTime(job.updatedAt) : selectedAsset ? formatTime(selectedAsset.createdAt) : "不适用"} />
         </InspectorSection>
 
-        {!preview && job ? <InspectorSection title="训练配置">
-          <PropertyRow label="任务类型" value="回归" />
-          <PropertyRow label="目标列" value="销售额" />
-          <PropertyRow label="算法" value="HistGradientBoosting" />
-          <PropertyRow label="随机种子" value="42" />
-          <PropertyRow label="验证比例" value="15%" />
+        {!preview && trainingResult ? <InspectorSection title="训练配置">
+          <PropertyRow label="任务类型" value={trainingResult.taskType ?? trainingResult.method} />
+          <PropertyRow label="目标列" value={trainingResult.targetColumn ?? "不适用"} />
+          <PropertyRow label="算法" value={algorithms.find((item) => item.id === trainingResult.algorithmId)?.name ?? trainingResult.algorithmId ?? "未记录"} />
+          <PropertyRow label="特征数" value={String(trainingResult.featureColumns.length)} />
+          <PropertyRow label="随机种子" value={String(trainingResult.parameters.randomSeed ?? "未记录")} />
         </InspectorSection> : null}
 
         {preview ? (
@@ -2420,23 +2432,23 @@ function InspectorPanel({
           </InspectorSection>
         ) : null}
 
-        <InspectorSection title={preview ? "字段概况" : "字段处理"}>
+        {preview ? <InspectorSection title="字段概况">
           <InspectorNotice
             icon={Braces}
             title="数值字段"
-            detail={preview ? `${preview.columns.filter((column) => isNumericType(column.inferredType)).length} 个字段` : "15 个字段, 使用中位数填充"}
+            detail={`${preview.columns.filter((column) => isNumericType(column.inferredType)).length} 个字段`}
           />
           <InspectorNotice
             icon={FileSpreadsheet}
             title="类别字段"
-            detail={preview ? `${preview.columns.filter((column) => !isNumericType(column.inferredType)).length} 个字段` : "9 个字段, 使用序数编码"}
+            detail={`${preview.columns.filter((column) => !isNumericType(column.inferredType)).length} 个字段`}
           />
-          <InspectorNotice
-            icon={BarChart3}
-            title="评价指标"
-            detail="R2, MAE, RMSE"
-          />
-        </InspectorSection>
+          <InspectorNotice icon={Database} title="空值单元格" detail={`${preview.columns.reduce((total, column) => total + column.nullCount, 0)} 个`} />
+        </InspectorSection> : null}
+
+        {trainingResult && Object.keys(trainingResult.metrics).length > 0 ? <InspectorSection title="评价指标">
+          {Object.entries(trainingResult.metrics).map(([name, value]) => <PropertyRow key={name} label={name} value={Number(value).toFixed(4)} />)}
+        </InspectorSection> : null}
 
         <InspectorSection title="项目位置">
           <div className="path-value" title={project.path}>
@@ -2495,50 +2507,35 @@ function InspectorNotice({
 }
 
 type CommandDockProps = {
-  activeMode: string;
   prompt: string;
-  onModeChange: (mode: string) => void;
   onPromptChange: (value: string) => void;
   onSubmit: () => void;
+  messages: OpenClawChatMessage[];
+  busy: boolean;
+  error: string | null;
 };
 
 function CommandDock({
-  activeMode,
   prompt,
-  onModeChange,
   onPromptChange,
   onSubmit,
+  messages,
+  busy,
+  error,
 }: CommandDockProps) {
+  const lastMessage = messages.at(-1);
   return (
     <footer className="command-dock">
-      <div className="command-mode" aria-label="命令模式">
-        <button
-          data-active={activeMode === "task"}
-          type="button"
-          onClick={() => onModeChange("task")}
-        >
-          <Sparkles aria-hidden="true" size={14} />
-          任务
-        </button>
-        <button
-          data-active={activeMode === "chat"}
-          type="button"
-          onClick={() => onModeChange("chat")}
-        >
-          <MessageSquareText aria-hidden="true" size={14} />
-          对话
-        </button>
+      <div className="command-status" title={lastMessage?.content ?? "OpenClaw 本地网关对话"}>
+        <Bot aria-hidden="true" size={15} />
+        <span>{error ? error : busy ? "OpenClaw 正在回复" : lastMessage?.role === "assistant" ? lastMessage.content : "OpenClaw 对话"}</span>
       </div>
 
       <div className="command-input-shell">
         <Bot aria-hidden="true" size={18} />
         <textarea
-          aria-label="输入任务或对话内容"
-          placeholder={
-            activeMode === "task"
-              ? "描述需要执行的数据任务"
-              : "询问当前项目、数据或模型结果"
-          }
+          aria-label="输入 OpenClaw 对话内容"
+          placeholder="询问当前项目、数据或模型结果"
           rows={1}
           value={prompt}
           onChange={(event) => onPromptChange(event.target.value)}
@@ -2551,7 +2548,7 @@ function CommandDock({
         />
         <button
           className="run-command-button"
-          disabled={!prompt.trim()}
+          disabled={!prompt.trim() || busy}
           title="发送"
           type="button"
           onClick={onSubmit}

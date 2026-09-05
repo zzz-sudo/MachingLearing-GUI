@@ -1,0 +1,8 @@
+{
+  // English comment: Enable the OpenAI-compatible endpoint used by the local backend.
+  gateway: {
+    port: 18789,
+    auth: { mode: "token", token: "请通过 OPENCLAW_GATEWAY_TOKEN 注入" },
+    http: { endpoints: { chatCompletions: { enabled: true } } }
+  }
+}

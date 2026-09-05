@@ -264,6 +264,20 @@ export type DatasetVersion = {
   createdAt: string;
 };
 
+export type OpenClawChatMessage = {
+  role: "user" | "assistant";
+  content: string;
+};
+
+export type OpenClawChatRequest = {
+  messages: OpenClawChatMessage[];
+};
+
+export type OpenClawChatResponse = {
+  message: OpenClawChatMessage;
+  model: string;
+};
+
 export type WorkspaceError = {
   errorType: string;
   message: string;

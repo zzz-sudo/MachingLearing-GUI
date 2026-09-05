@@ -2,4 +2,6 @@
 
 本目录中的文件是项目内可重复测试输入。导入流程必须保留原文件，先复制到项目资产目录，再创建数据集版本。测试文件按算法任务分目录保存，便于从项目树中按任务定位。
 
-算法测试文件包括分类、回归、聚类、单因素和多因素方差分析、序列学习、假设检验以及降维和数据探索。各任务文件位于 `test-classification`、`test-regression`、`test-clustering`、`test-anova`、`test-hypothesis`、`test-sequence` 和 `test-exploration` 目录。`test-hypothesis/hypothesis_fixture.csv` 用于 t 检验和卡方检验，`test-exploration/exploration_fixture.csv` 用于 PCA、t-SNE、Truncated SVD、UMAP、缺失值分析和相关性分析。
+算法测试文件包括分类、回归、聚类、单因素和多因素方差分析、序列学习、假设检验以及降维和数据探索。各任务文件位于中文目录 `训练数据`、`数据探索` 和 `文档样例` 下, 便于在项目树中按业务任务定位。假设检验数据用于 t 检验和卡方检验, 数据探索数据用于 PCA、t-SNE、Truncated SVD、UMAP、缺失值分析和相关性分析。
+
+文档样例目录包含可预览的 XLSX、CSV、数字文本 PDF、扫描型 PDF、混合型 PDF、压缩包以及开放获取的机器学习论文。每个文件保留来源和许可证说明, 导入后产生的 Parquet、解析 JSON 和导出文件写入项目的运行目录。

@@ -8,6 +8,8 @@ import type {
   DatasetVersion,
   DocumentParseResult,
   ImportResult,
+  OpenClawChatRequest,
+  OpenClawChatResponse,
   Project,
   ProjectFileNode,
   ServiceHealth,
@@ -124,11 +126,20 @@ export class LocalWorkspaceClient {
     projectId: string,
     assetId: string,
     columns: DatasetColumnSpec[],
+    missingValueStrategy: "keep" | "median" | "mode" = "keep",
   ): Promise<DatasetVersion> {
     return this.request<DatasetVersion>(`/projects/${projectId}/datasets`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ assetId, columns }),
+      body: JSON.stringify({ assetId, columns, missingValueStrategy }),
+    });
+  }
+
+  async sendOpenClawChat(projectId: string, payload: OpenClawChatRequest): Promise<OpenClawChatResponse> {
+    return this.request<OpenClawChatResponse>(`/projects/${projectId}/openclaw/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
     });
   }
 

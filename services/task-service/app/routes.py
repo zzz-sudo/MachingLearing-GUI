@@ -32,11 +32,14 @@ from app.models import (
     TablePreview,
     TrainingCreate,
     TrainingResult,
+    OpenClawChatRequest,
+    OpenClawChatResponse,
 )
 from app.visualization.diagnostics import build_diagnostic_specs
 from app.storage import WorkspaceStore
 from app.training import TrainingService
 from app.visualization.service import VisualizationService
+from app.openclaw import chat as openclaw_chat
 
 router = APIRouter()
 
@@ -56,6 +59,12 @@ def get_visualization_service(request: Request) -> VisualizationService:
 @router.get("/health", response_model=ServiceHealth)
 def get_health() -> ServiceHealth:
     return ServiceHealth()
+
+
+@router.post("/projects/{project_id}/openclaw/chat", response_model=OpenClawChatResponse)
+def send_openclaw_chat(project_id: str, payload: OpenClawChatRequest, request: Request) -> OpenClawChatResponse:
+    project = get_store(request).get_project(project_id)
+    return openclaw_chat(Path(project.path), payload)
 
 
 @router.get("/algorithms", response_model=AlgorithmCatalog)

@@ -19,6 +19,10 @@ coverage/
 /services/task-service/data/
 /services/task-service/build/
 /services/task-service/*.egg-info/
+/workspace/default/config/openclaw.json
+/workspace/default/config/openclaw.local.json5
+/.runtime/openclaw/
+/config/openclaw/gateway.local.json5
 /workspace/default/datasets/*
 !/workspace/default/datasets/.gitkeep
 /workspace/default/models/*

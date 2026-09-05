@@ -147,6 +147,7 @@ class DatasetColumnSpec(ApiModel):
 class DatasetCreate(ApiModel):
     asset_id: str
     columns: list[DatasetColumnSpec]
+    missing_value_strategy: Literal["keep", "median", "mode"] = "keep"
 
 
 class DatasetVersion(ApiModel):
@@ -157,7 +158,22 @@ class DatasetVersion(ApiModel):
     parquet_relative_path: str
     row_count: int
     columns: list[DatasetColumnSpec]
+    missing_value_strategy: Literal["keep", "median", "mode"] = "keep"
     created_at: datetime
+
+
+class OpenClawChatMessage(ApiModel):
+    role: Literal["user", "assistant"]
+    content: str = Field(min_length=1, max_length=12000)
+
+
+class OpenClawChatRequest(ApiModel):
+    messages: list[OpenClawChatMessage] = Field(min_length=1, max_length=40)
+
+
+class OpenClawChatResponse(ApiModel):
+    message: OpenClawChatMessage
+    model: str
 
 
 class AlgorithmParameter(ApiModel):

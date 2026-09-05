@@ -147,6 +147,9 @@ class WorkspaceStore:
                 ON chart_specs(project_id, updated_at DESC);
                 """
             )
+            dataset_columns = {row[1] for row in connection.execute("PRAGMA table_info(dataset_versions)").fetchall()}
+            if "missing_value_strategy" not in dataset_columns:
+                connection.execute("ALTER TABLE dataset_versions ADD COLUMN missing_value_strategy TEXT NOT NULL DEFAULT 'keep'")
 
     def create_project(self, payload: ProjectCreate) -> ProjectRecord:
         project_path = Path(payload.path).expanduser().resolve()
@@ -543,7 +546,7 @@ class WorkspaceStore:
 
     def create_dataset_version(
         self, project_id: str, source_asset_id: str, parquet_relative_path: str,
-        row_count: int, columns: list[DatasetColumnSpec],
+        row_count: int, columns: list[DatasetColumnSpec], missing_value_strategy: str = "keep",
     ) -> DatasetVersion:
         timestamp = utc_now()
         with self._connect() as connection:
@@ -556,19 +559,20 @@ class WorkspaceStore:
                 id=f"dataset-{uuid4().hex}", project_id=project_id,
                 source_asset_id=source_asset_id, version=version,
                 parquet_relative_path=parquet_relative_path, row_count=row_count,
-                columns=columns, created_at=timestamp,
+                columns=columns, missing_value_strategy=missing_value_strategy, created_at=timestamp,
             )
             connection.execute(
                 """
                 INSERT INTO dataset_versions(
                     id, project_id, source_asset_id, version,
-                    parquet_relative_path, row_count, columns_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    parquet_relative_path, row_count, columns_json, missing_value_strategy, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     record.id, record.project_id, record.source_asset_id, record.version,
                     record.parquet_relative_path, record.row_count,
                     json.dumps([column.model_dump(by_alias=True) for column in columns], ensure_ascii=False),
+                    record.missing_value_strategy,
                     record.created_at.isoformat(),
                 ),
             )
@@ -579,7 +583,7 @@ class WorkspaceStore:
             rows = connection.execute(
                 """
                 SELECT id, project_id, source_asset_id, version,
-                       parquet_relative_path, row_count, columns_json, created_at
+                       parquet_relative_path, row_count, columns_json, missing_value_strategy, created_at
                 FROM dataset_versions WHERE project_id = ? ORDER BY created_at DESC
                 """,
                 (project_id,),
@@ -591,7 +595,7 @@ class WorkspaceStore:
             row = connection.execute(
                 """
                 SELECT id, project_id, source_asset_id, version, parquet_relative_path,
-                       row_count, columns_json, created_at
+                       row_count, columns_json, missing_value_strategy, created_at
                 FROM dataset_versions WHERE id = ?
                 """,
                 (dataset_id,),
@@ -767,6 +771,7 @@ class WorkspaceStore:
             source_asset_id=row["source_asset_id"], version=row["version"],
             parquet_relative_path=row["parquet_relative_path"], row_count=row["row_count"],
             columns=[DatasetColumnSpec.model_validate(item) for item in json.loads(row["columns_json"])],
+            missing_value_strategy=row["missing_value_strategy"] if "missing_value_strategy" in row.keys() else "keep",
             created_at=datetime.fromisoformat(row["created_at"]),
         )
 

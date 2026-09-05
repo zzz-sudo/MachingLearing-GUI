@@ -35,6 +35,7 @@ class DatasetService:
         source_path = Path(project.path) / asset.relative_path
         records = self._read_records(source_path, preview.encoding, preview.sheet_name)
         converted = [self._convert_record(record, payload.columns, index + 2) for index, record in enumerate(records)]
+        converted = self._fill_missing(converted, payload.columns, payload.missing_value_strategy)
         schema = pa.schema([pa.field(column.name, self._arrow_type(column.data_type)) for column in payload.columns])
         table = pa.Table.from_pylist(converted, schema=schema)
         existing = [item for item in self.store.list_dataset_versions(project_id) if item.source_asset_id == asset.id]
@@ -42,7 +43,7 @@ class DatasetService:
         parquet.write_table(table, output_path, compression="zstd")
         return self.store.create_dataset_version(
             project_id, asset.id, output_path.relative_to(Path(project.path)).as_posix(),
-            table.num_rows, payload.columns,
+            table.num_rows, payload.columns, payload.missing_value_strategy,
         )
 
     @staticmethod
@@ -86,3 +87,27 @@ class DatasetService:
     @staticmethod
     def _arrow_type(data_type: str) -> pa.DataType:
         return {"text": pa.string(), "integer": pa.int64(), "number": pa.float64(), "boolean": pa.bool_()}[data_type]
+
+    @staticmethod
+    def _fill_missing(records: list[dict[str, Any]], columns: list[DatasetColumnSpec], strategy: str) -> list[dict[str, Any]]:
+        if strategy == "keep":
+            return records
+        for column in columns:
+            values = [record[column.name] for record in records if record[column.name] is not None]
+            if not values:
+                continue
+            if strategy == "median" and column.data_type in {"integer", "number"}:
+                ordered = sorted(float(value) for value in values)
+                midpoint = len(ordered) // 2
+                replacement = ordered[midpoint] if len(ordered) % 2 else (ordered[midpoint - 1] + ordered[midpoint]) / 2
+                if column.data_type == "integer":
+                    replacement = int(round(replacement))
+            else:
+                counts: dict[Any, int] = {}
+                for value in values:
+                    counts[value] = counts.get(value, 0) + 1
+                replacement = max(counts, key=counts.get)
+            for record in records:
+                if record[column.name] is None:
+                    record[column.name] = replacement
+        return records
