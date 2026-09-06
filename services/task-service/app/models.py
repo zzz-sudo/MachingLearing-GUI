@@ -149,6 +149,22 @@ class ImportResult(ApiModel):
     warnings: list[str] = Field(default_factory=list)
 
 
+class CategoricalEncodingResult(ApiModel):
+    """分类字段编码后的新文件、预览和可追溯映射。"""
+
+    imported_assets: list[AssetRecord]
+    preview: TablePreview
+    mapping: dict[str, dict[str, int]]
+    mapping_relative_path: str
+
+
+class CategoricalEncodingCreate(ApiModel):
+    """分类字段编码请求。"""
+
+    asset_id: str
+    columns: list[str] = Field(min_length=1, max_length=100)
+
+
 class DatasetColumnSpec(ApiModel):
     name: str
     data_type: str

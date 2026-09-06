@@ -113,6 +113,31 @@ def test_default_project_ignores_legacy_user_directory(tmp_path: Path) -> None:
     assert Path(project.path).resolve() == expected.resolve()
 
 
+def test_encode_categorical_columns_creates_traceable_csv(tmp_path: Path) -> None:
+    project_path = tmp_path / "categorical-project"
+    source = "region,value\n华东,10\n华南,20\n华东,30\n"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        imported = import_file(client, project["id"], "sales.csv", source.encode("utf-8"))
+        assert imported.status_code == 201
+        asset_id = imported.json()["preview"]["assetId"]
+        response = client.post(
+            f"/api/projects/{project['id']}/datasets/encode-categorical",
+            json={"assetId": asset_id, "columns": ["region"]},
+        )
+
+    assert response.status_code == 201
+    body = response.json()
+    assert body["mapping"] == {"region": {"华东": 0, "华南": 1}}
+    assert body["preview"]["columns"][0]["inferredType"] == "integer"
+    encoded_name = body["importedAssets"][0]["name"]
+    assert encoded_name.startswith("sales-分类编码")
+    encoded_path = project_path / "source" / encoded_name
+    assert encoded_path.read_text(encoding="utf-8").splitlines()[1].startswith("0,")
+    assert (project_path / body["mappingRelativePath"]).exists()
+    assert (project_path / "source" / "sales.csv").read_text(encoding="utf-8") == source
+
+
 def test_project_table_file_preview_does_not_download(tmp_path: Path) -> None:
     project_path = tmp_path / "project-file-preview"
     with create_test_client(tmp_path) as client:
@@ -145,7 +170,7 @@ def test_project_table_cell_update_persists_and_refreshes_preview(tmp_path: Path
             json={"rowIndex": 1, "column": "数值", "value": 9},
         )
 
-    assert response.status_code == 200
+        assert response.status_code == 200
     assert response.json()["rows"][1]["数值"] == "9"
     assert "乙,9" in source_path.read_text(encoding="utf-8")
 

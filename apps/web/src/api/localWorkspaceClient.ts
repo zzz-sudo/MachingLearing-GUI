@@ -8,6 +8,7 @@ import type {
   DatasetVersion,
   DocumentParseResult,
   ImportResult,
+  CategoricalEncodingResult,
   OpenClawChatRequest,
   OpenClawChatResponse,
   Project,
@@ -149,6 +150,14 @@ export class LocalWorkspaceClient {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ assetId, columns, missingValueStrategy }),
+    });
+  }
+
+  async encodeCategoricalColumns(projectId: string, assetId: string, columns: string[]): Promise<CategoricalEncodingResult> {
+    return this.request<CategoricalEncodingResult>(`/projects/${projectId}/datasets/encode-categorical`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ assetId, columns }),
     });
   }
 

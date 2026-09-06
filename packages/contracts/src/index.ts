@@ -248,6 +248,13 @@ export type ImportResult = {
   warnings: string[];
 };
 
+export type CategoricalEncodingResult = {
+  importedAssets: Asset[];
+  preview: TablePreview;
+  mapping: Record<string, Record<string, number>>;
+  mappingRelativePath: string;
+};
+
 export type DatasetColumnSpec = {
   name: string;
   dataType: "text" | "integer" | "number" | "boolean";

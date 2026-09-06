@@ -19,6 +19,8 @@ from app.models import (
     ChartSpecCreate,
     ChartSpecRecord,
     ChartGenerationResult,
+    CategoricalEncodingResult,
+    CategoricalEncodingCreate,
     DatasetCreate,
     DatasetVersion,
     DocumentParseResult,
@@ -207,6 +209,12 @@ def list_datasets(project_id: str, request: Request) -> list[DatasetVersion]:
 @router.post("/projects/{project_id}/datasets", response_model=DatasetVersion, status_code=201)
 def create_dataset(project_id: str, payload: DatasetCreate, request: Request) -> DatasetVersion:
     return DatasetService(get_store(request)).create(project_id, payload)
+
+
+@router.post("/projects/{project_id}/datasets/encode-categorical", response_model=CategoricalEncodingResult, status_code=201)
+def encode_categorical_dataset(project_id: str, payload: CategoricalEncodingCreate, request: Request) -> CategoricalEncodingResult:
+    """创建分类字段编码后的新源文件，不修改原始文件。"""
+    return FileImporter(get_store(request)).encode_categorical_columns(project_id, payload.asset_id, payload.columns)
 
 
 @router.get("/projects/{project_id}/charts", response_model=list[ChartSpecRecord])

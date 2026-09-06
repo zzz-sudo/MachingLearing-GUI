@@ -196,6 +196,7 @@ export function App() {
   const [documentResult, setDocumentResult] = useState<DocumentParseResult | null>(null);
   const [fieldTypes, setFieldTypes] = useState<Record<string, DatasetColumnSpec["dataType"]>>({});
   const [missingValueStrategy, setMissingValueStrategy] = useState<"keep" | "median" | "mode">("keep");
+  const [encodingBusy, setEncodingBusy] = useState(false);
   const [chatMessages, setChatMessages] = useState<OpenClawChatMessage[]>([]);
   const [chatBusy, setChatBusy] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -501,6 +502,31 @@ export function App() {
     }
   }
 
+  async function encodeCategoricalColumns(columns: string[]) {
+    if (!preview || !selectedAsset || columns.length === 0) {
+      return;
+    }
+    setEncodingBusy(true);
+    setImportError(null);
+    try {
+      const result = await workspaceClient.encodeCategoricalColumns(selectedProject.id, selectedAsset.id, columns);
+      const nextAsset = result.importedAssets[0] ?? null;
+      setPreview(result.preview);
+      setSelectedAsset(nextAsset);
+      setSelectedFilePath(nextAsset?.relativePath ?? null);
+      setPreviewIsProjectFile(false);
+      setDataset(null);
+      setFieldTypes(createInitialFieldTypes(result.preview));
+      setAssets(await workspaceClient.listAssets(selectedProject.id));
+      setFileTree(await workspaceClient.getProjectTree(selectedProject.id, showHidden));
+      setModelPlanStatus(`已创建分类编码文件, 映射记录: ${result.mappingRelativePath}`);
+    } catch (error: unknown) {
+      setImportError(asWorkspaceError(error, "categorical_encode", "分类字段编码失败"));
+    } finally {
+      setEncodingBusy(false);
+    }
+  }
+
   async function createTraining(payload: TrainingCreate) {
     try {
       const result = await workspaceClient.createTraining(selectedProject.id, payload);
@@ -664,10 +690,12 @@ export function App() {
               trainingResult={trainingResult}
               missingValueStrategy={missingValueStrategy}
               onMissingValueStrategyChange={setMissingValueStrategy}
-              onTablePreviewChange={(updatedPreview) => {
+                onTablePreviewChange={(updatedPreview) => {
                 setPreview(updatedPreview);
                 setDataset(null);
-              }}
+                }}
+                encodingBusy={encodingBusy}
+                onEncodeCategoricalColumns={encodeCategoricalColumns}
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
               onGoToModels={() => setActiveRail("models")}
@@ -1374,6 +1402,8 @@ type WorkspaceContentProps = {
   trainingResult: TrainingResult | null;
   missingValueStrategy: "keep" | "median" | "mode";
   onMissingValueStrategyChange: (value: "keep" | "median" | "mode") => void;
+  encodingBusy: boolean;
+  onEncodeCategoricalColumns: (columns: string[]) => Promise<void>;
   onTablePreviewChange: (preview: TablePreview) => void;
   projectReady: boolean;
   onImport: () => void;
@@ -1413,6 +1443,8 @@ function WorkspaceContent({
   trainingResult,
   missingValueStrategy,
   onMissingValueStrategyChange,
+  encodingBusy,
+  onEncodeCategoricalColumns,
   onTablePreviewChange,
   projectReady,
   onImport,
@@ -1429,6 +1461,7 @@ function WorkspaceContent({
   onSelectChart,
   getChartArtifactUrl,
 }: WorkspaceContentProps) {
+  const [encodingDialogOpen, setEncodingDialogOpen] = useState(false);
   const numericColumnCount =
     preview?.columns.filter((column) =>
       ["integer", "number"].includes(column.inferredType),
@@ -1594,6 +1627,17 @@ function WorkspaceContent({
               </select>
             </label>
           </div>
+          {preview.columns.some((column) => column.inferredType === "text") ? (
+            <div className="encoding-callout">
+              <div>
+                <strong>发现文本类别字段</strong>
+                <span>选择重复的类别字段编码为 0, 1, 2 等整数, 原始文件不会被修改。</span>
+              </div>
+              <button className="secondary-button" type="button" onClick={() => setEncodingDialogOpen(true)} disabled={encodingBusy || previewIsProjectFile}>
+                {encodingBusy ? "正在创建" : "转换分类字段"}
+              </button>
+            </div>
+          ) : null}
           <div className="quality-summary">
             <Metric label="空值单元格" value={String(preview.columns.reduce((total, column) => total + column.nullCount, 0))} detail="来自当前文件" />
             <Metric label="有空值字段" value={String(preview.columns.filter((column) => column.nullCount > 0).length)} detail={`共 ${preview.columnCount} 个字段`} />
@@ -1607,6 +1651,59 @@ function WorkspaceContent({
         </section>
       ) : null}
 
+      {encodingDialogOpen && preview ? (
+        <CategoricalEncodingDialog
+          preview={preview}
+          busy={encodingBusy}
+          onClose={() => setEncodingDialogOpen(false)}
+          onConfirm={async (columns) => {
+            await onEncodeCategoricalColumns(columns);
+            setEncodingDialogOpen(false);
+          }}
+        />
+      ) : null}
+
+    </div>
+  );
+}
+
+function CategoricalEncodingDialog({
+  preview,
+  busy,
+  onClose,
+  onConfirm,
+}: {
+  preview: TablePreview;
+  busy: boolean;
+  onClose: () => void;
+  onConfirm: (columns: string[]) => Promise<void>;
+}) {
+  const candidates = preview.columns.filter((column) => column.inferredType === "text");
+  const [selected, setSelected] = useState<string[]>(candidates.map((column) => column.name));
+  const toggle = (name: string) => setSelected((current) => current.includes(name) ? current.filter((item) => item !== name) : [...current, name]);
+  return (
+    <div className="update-overlay" role="presentation" onMouseDown={onClose}>
+      <section className="update-dialog encoding-dialog" role="dialog" aria-modal="true" aria-labelledby="encoding-title" onMouseDown={(event) => event.stopPropagation()}>
+        <header className="update-dialog-header">
+          <div><span className="section-kicker">字段转换</span><h2 id="encoding-title">选择分类字段</h2></div>
+          <button className="icon-button" title="关闭" type="button" onClick={onClose}><X aria-hidden="true" size={17} /><span className="sr-only">关闭</span></button>
+        </header>
+        <div className="update-dialog-body">
+          <p className="encoding-help">仅选择具有有限重复类别的文本列, 例如地区或产品类型。自由文本、日期和编号列不建议使用此转换。</p>
+          <div className="encoding-options">
+            {candidates.map((column) => (
+              <label key={column.name} className="encoding-option">
+                <input type="checkbox" checked={selected.includes(column.name)} onChange={() => toggle(column.name)} />
+                <span><strong>{column.name}</strong><small>预览类型: 文本, 空值 {column.nullCount}</small></span>
+              </label>
+            ))}
+          </div>
+        </div>
+        <footer className="update-dialog-actions">
+          <button className="secondary-button" type="button" onClick={onClose}>取消</button>
+          <button className="primary-button" type="button" disabled={busy || selected.length === 0} onClick={() => void onConfirm(selected)}>{busy ? "正在编码" : "创建新文件"}</button>
+        </footer>
+      </section>
     </div>
   );
 }

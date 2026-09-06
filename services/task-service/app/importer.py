@@ -4,6 +4,7 @@ import csv
 import gzip
 import hashlib
 import io
+import json
 import mimetypes
 import re
 import shutil
@@ -20,7 +21,7 @@ from openpyxl import load_workbook
 
 from app.errors import WorkspaceServiceError, import_error
 from app.documents import PdfDocumentService
-from app.models import AssetRecord, DocumentParseResult, ImportResult, PreviewColumn, TableCellUpdate, TablePreview
+from app.models import AssetRecord, CategoricalEncodingResult, DocumentParseResult, ImportResult, PreviewColumn, TableCellUpdate, TablePreview
 from app.storage import WorkspaceStore
 
 PREVIEW_ROW_LIMIT = 100
@@ -185,6 +186,94 @@ class FileImporter:
             preview = preview.model_copy(update={"asset_id": asset.id})
             self.store.save_preview(preview)
         return preview
+
+    def encode_categorical_columns(
+        self,
+        project_id: str,
+        asset_id: str,
+        columns: list[str],
+    ) -> CategoricalEncodingResult:
+        """将用户选中的重复文本字段编码为整数，并写入新的 CSV 文件。
+
+        编码字典按原文件首次出现的顺序生成，因此同一文件重复操作时结果稳定，
+        同时保留映射 JSON 供审计、复现实验和后续逆向解释使用。
+        """
+        project = self.store.get_project(project_id)
+        asset = self.store.get_asset(asset_id)
+        if asset.project_id != project_id or asset.relative_path is None:
+            raise import_error("CategoricalEncodingError", "源文件不属于当前项目", "categorical_encode", assetId=asset_id)
+        path = Path(project.path) / asset.relative_path
+        if path.suffix.lower() not in TABLE_SUFFIXES:
+            raise import_error("CategoricalEncodingError", f"当前文件不是可编码表格: {path.name}", "categorical_encode", filename=path.name)
+        preview = self.store.get_preview(asset.id)
+        expected = {column.name for column in preview.columns}
+        selected = list(dict.fromkeys(column.strip() for column in columns if column.strip()))
+        if not selected or any(column not in expected for column in selected):
+            raise import_error("CategoricalEncodingError", "请选择当前预览中存在的字段", "categorical_encode", selectedColumns=selected, expectedColumns=sorted(expected))
+        text_columns = {column.name for column in preview.columns if column.inferred_type == "text"}
+        non_text = [column for column in selected if column not in text_columns]
+        if non_text:
+            raise import_error("CategoricalEncodingError", "只有文本类别字段可以执行此操作", "categorical_encode", columns=non_text)
+
+        headers, rows, encoding, dialect = self._read_full_table(path, preview)
+        mapping: dict[str, dict[str, int]] = {column: {} for column in selected}
+        encoded_rows: list[list[Any]] = []
+        for row in rows:
+            output_row = list(row)
+            for column in selected:
+                index = headers.index(column)
+                value = row[index] if index < len(row) else None
+                if value in (None, ""):
+                    continue
+                key = str(value)
+                if key not in mapping[column]:
+                    mapping[column][key] = len(mapping[column])
+                output_row[index] = mapping[column][key]
+            encoded_rows.append(output_row)
+
+        output_name = f"{path.stem}-分类编码.csv"
+        output_path = self._unique_path(Path(project.path) / "source", output_name)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        with output_path.open("w", encoding="utf-8", newline="") as handle:
+            csv.writer(handle, dialect or csv.excel).writerows([headers, *encoded_rows])
+        mapping_dir = Path(project.path) / "reports"
+        mapping_dir.mkdir(parents=True, exist_ok=True)
+        mapping_path = self._unique_path(mapping_dir, f"{output_path.stem}-映射.json")
+        mapping_path.write_text(json.dumps(mapping, ensure_ascii=False, indent=2), encoding="utf-8")
+
+        new_asset = self._record_asset(project_id, Path(project.path), output_path, asset.id)
+        new_preview = self._preview_csv(output_path, new_asset.id)
+        self.store.save_preview(new_preview)
+        return CategoricalEncodingResult(
+            imported_assets=[new_asset],
+            preview=new_preview,
+            mapping=mapping,
+            mapping_relative_path=mapping_path.relative_to(Path(project.path)).as_posix(),
+        )
+
+    def _read_full_table(
+        self,
+        path: Path,
+        preview: TablePreview,
+    ) -> tuple[list[str], list[list[Any]], str | None, csv.Dialect | None]:
+        """读取完整表格，返回标准化字段名、数据行和 CSV 方言。"""
+        if path.suffix.lower() == ".csv":
+            encoding = preview.encoding or self._detect_encoding(path.read_bytes(), path.name)
+            text = path.read_bytes().decode(encoding)
+            try:
+                dialect = csv.Sniffer().sniff(text[:65536], delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
+            rows = list(csv.reader(io.StringIO(text), dialect))
+            return self._normalize_headers(rows[0]), rows[1:], encoding, dialect
+        workbook = load_workbook(path, read_only=True, data_only=True)
+        worksheet = workbook[preview.sheet_name] if preview.sheet_name else workbook[workbook.sheetnames[0]]
+        iterator = worksheet.iter_rows(values_only=True)
+        first_row = next(iterator, ())
+        headers = self._normalize_headers(first_row)
+        rows = [list(row) for row in iterator]
+        workbook.close()
+        return headers, rows, None, None
 
     def _record_asset(
         self,

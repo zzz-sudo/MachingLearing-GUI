@@ -2226,6 +2226,80 @@ textarea:focus-visible {
   width: 100%;
 }
 
+.encoding-callout {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 14px 0;
+  padding: 12px 14px;
+  border: 1px solid #c8dcd6;
+  border-left: 3px solid var(--accent);
+  background: #f2f8f6;
+}
+
+.encoding-callout div {
+  display: grid;
+  gap: 4px;
+}
+
+.encoding-callout strong {
+  color: var(--text);
+  font-size: 12px;
+}
+
+.encoding-callout span,
+.encoding-help {
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.55;
+}
+
+.encoding-dialog {
+  width: min(520px, 100%);
+}
+
+.encoding-help {
+  margin: 0 0 14px;
+}
+
+.encoding-options {
+  display: grid;
+  gap: 8px;
+  max-height: 280px;
+  overflow: auto;
+}
+
+.encoding-option {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  cursor: pointer;
+}
+
+.encoding-option:has(input:checked) {
+  border-color: var(--accent);
+  background: #f2f8f6;
+}
+
+.encoding-option input {
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.encoding-option span {
+  display: grid;
+  gap: 3px;
+}
+
+.encoding-option small {
+  color: var(--muted);
+  font-size: 10px;
+}
+
 table {
   width: max-content;
   min-width: 100%;
