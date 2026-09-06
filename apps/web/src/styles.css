@@ -663,6 +663,10 @@ textarea:focus-visible {
   background: #f8f9fa;
 }
 
+.main-workspace.history-main {
+  grid-template-rows: 72px minmax(0, 1fr) 92px;
+}
+
 .workspace-header {
   display: flex;
   align-items: center;

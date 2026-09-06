@@ -587,7 +587,7 @@ export function App() {
         onOpenUpdateCenter={() => setUpdateCenterOpen(true)}
       />
 
-      <PanelGroup direction="horizontal" className="workspace-panels">
+      <PanelGroup key={activeRail === "jobs" ? "history-layout" : "workspace-layout"} direction="horizontal" className="workspace-panels">
         {activeRail !== "jobs" ? <>
         <Panel defaultSize={19} minSize={15} maxSize={28}>
           <ContextSidebar
@@ -628,7 +628,7 @@ export function App() {
         </> : null}
 
         <Panel defaultSize={activeRail === "jobs" ? 100 : 56} minSize={activeRail === "jobs" ? 70 : 40}>
-          <main className="main-workspace">
+          <main className={activeRail === "jobs" ? "main-workspace history-main" : "main-workspace"}>
             <WorkspaceHeader
               activeRail={activeRail}
               health={health}
@@ -639,6 +639,7 @@ export function App() {
               selectedFile={selectedProjectFile}
               inspectorVisible={inspectorVisible}
               onToggleInspector={() => setInspectorVisible((current) => !current)}
+              showInspectorToggle={activeRail !== "jobs"}
             />
             <WorkflowBar activeRail={activeRail} job={selectedJob} preview={preview} />
               <WorkspaceContent
@@ -696,9 +697,9 @@ export function App() {
           </main>
         </Panel>
 
-        {inspectorVisible ? <ResizeHandle /> : null}
+        {inspectorVisible && activeRail !== "jobs" ? <ResizeHandle /> : null}
 
-        {inspectorVisible ? <Panel defaultSize={25} minSize={20} maxSize={34} collapsible>
+        {inspectorVisible && activeRail !== "jobs" ? <Panel defaultSize={25} minSize={20} maxSize={34} collapsible>
           <InspectorPanel
             activeRail={activeRail}
             activeTab={activeInspector}
@@ -1255,6 +1256,7 @@ type WorkspaceHeaderProps = {
   selectedFile: ProjectFileNode | null;
   inspectorVisible: boolean;
   onToggleInspector: () => void;
+  showInspectorToggle?: boolean;
 };
 
 function WorkspaceHeader({
@@ -1267,6 +1269,7 @@ function WorkspaceHeader({
   selectedFile,
   inspectorVisible,
   onToggleInspector,
+  showInspectorToggle = true,
 }: WorkspaceHeaderProps) {
   const activeLabel =
     railItems.find((item) => item.id === activeRail)?.label ?? "工作台";
@@ -1287,7 +1290,7 @@ function WorkspaceHeader({
           <span />
           {health ? "本地服务已连接" : "本地服务未连接"}
         </div>
-        <button
+        {showInspectorToggle ? <button
           className="icon-button"
           title={inspectorVisible ? "收起检查栏" : "展开检查栏"}
           type="button"
@@ -1295,13 +1298,16 @@ function WorkspaceHeader({
         >
           <PanelRightClose aria-hidden="true" size={17} />
           <span className="sr-only">{inspectorVisible ? "收起检查栏" : "展开检查栏"}</span>
-        </button>
+        </button> : null}
       </div>
     </header>
   );
 }
 
 function WorkflowBar({ activeRail, job, preview }: { activeRail: string; job: Job | null; preview: TablePreview | null }) {
+  if (activeRail === "jobs") {
+    return null;
+  }
   const steps = activeRail === "documents"
     ? ["读取文件", "页面解析", "内容检查", "格式导出"]
     : ["导入", "字段检查", "训练配置", "模型训练", "结果评估"];
