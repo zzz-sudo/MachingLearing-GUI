@@ -38,6 +38,19 @@ PROJECT_DIRECTORIES = (
     "temp",
 )
 
+INTERNAL_TREE_NAMES = {
+    ".git",
+    ".github",
+    ".openclaw",
+    "agents.md",
+    "bootstrap.md",
+    "heartbeat.md",
+    "identity.md",
+    "soul.md",
+    "tools.md",
+    "user.md",
+}
+
 
 def utc_now() -> datetime:
     return datetime.now(UTC)
@@ -442,7 +455,8 @@ class WorkspaceStore:
             nodes: list[ProjectFileNode] = []
             for entry in entries:
                 path = Path(entry.path)
-                if entry.name.casefold() == ".gitkeep":
+                normalized_name = entry.name.casefold()
+                if normalized_name == ".gitkeep" or normalized_name in INTERNAL_TREE_NAMES or normalized_name.startswith("openclaw."):
                     continue
                 hidden = self._is_hidden(path)
                 if hidden and not include_hidden:

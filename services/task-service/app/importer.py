@@ -20,7 +20,7 @@ from openpyxl import load_workbook
 
 from app.errors import WorkspaceServiceError, import_error
 from app.documents import PdfDocumentService
-from app.models import AssetRecord, DocumentParseResult, ImportResult, PreviewColumn, TablePreview
+from app.models import AssetRecord, DocumentParseResult, ImportResult, PreviewColumn, TableCellUpdate, TablePreview
 from app.storage import WorkspaceStore
 
 PREVIEW_ROW_LIMIT = 100
@@ -141,6 +141,50 @@ class FileImporter:
         if not existing:
             self.store.save_preview(preview)
         return ImportResult(imported_assets=[asset], preview=preview)
+
+    def update_project_table_cell(self, project_id: str, relative_path: str, payload: TableCellUpdate) -> TablePreview:
+        """Save one visible table cell and return a fresh preview."""
+        project = self.store.get_project(project_id)
+        path = self.store.resolve_project_file(project_id, relative_path)
+        if path.suffix.lower() not in TABLE_SUFFIXES:
+            raise import_error("UnsupportedEditFormatError", f"当前文件不支持表格编辑: {path.name}", "table_cell_update")
+        if path.suffix.lower() == ".csv":
+            raw = path.read_bytes()
+            encoding = self._detect_encoding(raw, path.name)
+            text = raw.decode(encoding)
+            try:
+                dialect = csv.Sniffer().sniff(text[:65536], delimiters=",;\t|")
+            except csv.Error:
+                dialect = csv.excel
+            rows = list(csv.reader(io.StringIO(text), dialect))
+            if payload.row_index + 1 >= len(rows):
+                raise import_error("TableCellError", "目标行超出文件范围", "table_cell_update", rowIndex=payload.row_index)
+            headers = self._normalize_headers(rows[0])
+            if payload.column not in headers:
+                raise import_error("TableCellError", f"目标字段不存在: {payload.column}", "table_cell_update", column=payload.column)
+            column_index = headers.index(payload.column)
+            row = rows[payload.row_index + 1]
+            while len(row) <= column_index:
+                row.append("")
+            row[column_index] = "" if payload.value is None else str(payload.value)
+            output = io.StringIO(newline="")
+            csv.writer(output, dialect).writerows(rows)
+            path.write_bytes(output.getvalue().encode(encoding))
+        else:
+            workbook = load_workbook(path)
+            worksheet = workbook[workbook.sheetnames[0]]
+            headers = self._normalize_headers(next(worksheet.iter_rows(min_row=1, max_row=1, values_only=True)))
+            if payload.column not in headers:
+                raise import_error("TableCellError", f"目标字段不存在: {payload.column}", "table_cell_update", column=payload.column)
+            worksheet.cell(row=payload.row_index + 2, column=headers.index(payload.column) + 1).value = payload.value
+            workbook.save(path)
+            workbook.close()
+        preview = self._preview_table(path, f"project-file:{project.id}:{path.relative_to(Path(project.path)).as_posix()}")
+        asset = next((item for item in self.store.list_assets(project_id) if item.relative_path == relative_path.replace("\\", "/")), None)
+        if asset:
+            preview = preview.model_copy(update={"asset_id": asset.id})
+            self.store.save_preview(preview)
+        return preview
 
     def _record_asset(
         self,

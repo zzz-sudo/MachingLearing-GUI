@@ -9,6 +9,7 @@ from fastapi import APIRouter, Header, Query, Request
 from fastapi.responses import FileResponse
 
 from app.datasets import DatasetService
+from app.errors import WorkspaceServiceError
 from app.algorithm_catalog import get_algorithm_catalog
 from app.documents import DocumentExportService
 from app.importer import FileImporter
@@ -26,10 +27,12 @@ from app.models import (
     JobRecord,
     JobUpdate,
     ProjectFileNode,
+    ProjectTextUpdate,
     ProjectCreate,
     ProjectRecord,
     ServiceHealth,
     TablePreview,
+    TableCellUpdate,
     TrainingCreate,
     TrainingResult,
     OpenClawChatRequest,
@@ -119,6 +122,33 @@ def get_project_file_content(
         media_type=media_type,
         headers={"Content-Disposition": f"inline; filename*=UTF-8''{quote(path.name)}"},
     )
+
+
+@router.put("/projects/{project_id}/files/content", response_model=dict[str, str])
+def update_project_file_content(
+    project_id: str,
+    payload: ProjectTextUpdate,
+    request: Request,
+    relative_path: str = Query(alias="path"),
+) -> dict[str, str]:
+    path = get_store(request).resolve_project_file(project_id, relative_path)
+    if path.suffix.lower() not in {".md", ".markdown", ".txt", ".json", ".yaml", ".yml"}:
+        raise WorkspaceServiceError("UnsupportedEditFormatError", f"当前文件不支持文本编辑: {path.name}", "project_file_update")
+    try:
+        path.write_text(payload.content, encoding="utf-8", newline="")
+    except OSError as error:
+        raise WorkspaceServiceError("FileAccessError", f"无法保存项目文件: {path.name}", "project_file_update", details={"reason": str(error)}) from error
+    return {"status": "saved", "encoding": "utf-8"}
+
+
+@router.patch("/projects/{project_id}/files/table-cell", response_model=TablePreview)
+def update_project_table_cell(
+    project_id: str,
+    payload: TableCellUpdate,
+    request: Request,
+    relative_path: str = Query(alias="path"),
+) -> TablePreview:
+    return FileImporter(get_store(request)).update_project_table_cell(project_id, relative_path, payload)
 
 
 @router.get("/projects/{project_id}/files/preview", response_model=TablePreview)

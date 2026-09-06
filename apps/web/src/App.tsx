@@ -66,6 +66,8 @@ import {
 } from "./api/localWorkspaceClient";
 import { demoProjects } from "./data/demo";
 import { ChartWorkspace } from "./workspaces/ChartWorkspace";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 const workspaceClient = new LocalWorkspaceClient();
 const initialProject = demoProjects[0]!;
@@ -661,6 +663,10 @@ export function App() {
               trainingResult={trainingResult}
               missingValueStrategy={missingValueStrategy}
               onMissingValueStrategyChange={setMissingValueStrategy}
+              onTablePreviewChange={(updatedPreview) => {
+                setPreview(updatedPreview);
+                setDataset(null);
+              }}
               projectReady={projectReady}
               onConfirm={() => void confirmFields()}
               onGoToModels={() => setActiveRail("models")}
@@ -1362,6 +1368,7 @@ type WorkspaceContentProps = {
   trainingResult: TrainingResult | null;
   missingValueStrategy: "keep" | "median" | "mode";
   onMissingValueStrategyChange: (value: "keep" | "median" | "mode") => void;
+  onTablePreviewChange: (preview: TablePreview) => void;
   projectReady: boolean;
   onImport: () => void;
   onImportArchive: () => void;
@@ -1400,6 +1407,7 @@ function WorkspaceContent({
   trainingResult,
   missingValueStrategy,
   onMissingValueStrategyChange,
+  onTablePreviewChange,
   projectReady,
   onImport,
   onImportArchive,
@@ -1535,7 +1543,7 @@ function WorkspaceContent({
         <div className="content-heading">
           <div>
             <span className="section-kicker">数据预览</span>
-            <h2>{preview?.sourceName ?? "销售数据集 v3"}</h2>
+            <h2>{preview?.sourceName ?? "销售数据集"}</h2>
           </div>
           <div className="content-actions">
             <button className="secondary-button" type="button" onClick={onImport} disabled={importing || !projectReady}>
@@ -1551,45 +1559,13 @@ function WorkspaceContent({
           </div>
         </div>
 
-        <div className="data-table-shell">
-          <table>
-            <thead>
-              {preview ? (
-                <tr>
-                  {preview.columns.map((column) => (
-                    <th
-                      key={column.name}
-                      className={isNumericType(column.inferredType) ? "number-cell" : undefined}
-                      title={`${column.name}, ${column.inferredType}`}
-                    >
-                      {column.name}
-                    </th>
-                  ))}
-                </tr>
-              ) : (
-                <tr>
-                  <th>日期</th><th>区域</th><th>产品类别</th><th>渠道</th>
-                  <th className="number-cell">销量</th><th className="number-cell">销售额</th>
-                </tr>
-              )}
-            </thead>
-            <tbody>
-              {preview ? preview.rows.map((row, rowIndex) => (
-                <tr key={rowIndex}>
-                  {preview.columns.map((column) => (
-                    <td
-                      key={column.name}
-                      className={isNumericType(column.inferredType) ? "number-cell" : undefined}
-                      title={formatCell(row[column.name])}
-                    >
-                      {formatCell(row[column.name])}
-                    </td>
-                  ))}
-                </tr>
-              )) : <DemoTableRows />}
-            </tbody>
-          </table>
-        </div>
+        <EditableTablePreview
+          preview={preview}
+          projectId={project.id}
+          relativePath={selectedFile?.relativePath ?? selectedAsset?.relativePath ?? null}
+          editableAllowed={Boolean(selectedFile || selectedAsset)}
+          onSaved={onTablePreviewChange}
+        />
         <div className="table-footer">
           <span>{preview ? `显示前 ${preview.rows.length} 行, 共 ${preview.rowCount.toLocaleString("zh-CN")} 行` : "显示前 4 行, 共 48,216 行"}</span>
           <span>来源: {preview?.sourceName ?? project.path}</span>
@@ -1694,7 +1670,7 @@ function DocumentWorkspace({
         fileName.toLowerCase().endsWith(".pdf") ? (
           <PdfDocumentViewer fileName={fileName} url={contentUrl} />
         ) : isTextPreviewFile(fileName) ? (
-          <TextFileViewer fileName={fileName} url={contentUrl} />
+          <TextFileViewer fileName={fileName} url={contentUrl} projectId={projectId} relativePath={file?.relativePath ?? asset?.relativePath ?? null} editableAllowed={Boolean(file || asset)} />
         ) : (
           <ProjectFileNotice fileName={fileName} />
         )
@@ -1727,9 +1703,12 @@ function ProjectFileNotice({ fileName }: { fileName: string }) {
   );
 }
 
-function TextFileViewer({ fileName, url }: { fileName: string; url: string }) {
+function TextFileViewer({ fileName, url, projectId, relativePath, editableAllowed }: { fileName: string; url: string; projectId: string; relativePath: string | null; editableAllowed: boolean }) {
   const [content, setContent] = useState<string | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveMessage, setSaveMessage] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1752,12 +1731,56 @@ function TextFileViewer({ fileName, url }: { fileName: string; url: string }) {
   if (content === null) {
     return <div className="text-file-state"><FileText aria-hidden="true" size={28} /><strong>正在读取文件</strong><span>{fileName}</span></div>;
   }
+  const isMarkdown = fileName.toLowerCase().endsWith(".md") || fileName.toLowerCase().endsWith(".markdown");
+  const loadedContent = content;
+  async function save() {
+    if (!relativePath) return;
+    setSaving(true);
+    setSaveMessage(null);
+    try {
+      await workspaceClient.updateProjectFile(projectId, relativePath, loadedContent);
+      setEditing(false);
+      setSaveMessage("已保存");
+    } catch (error: unknown) {
+      setSaveMessage(error instanceof Error ? error.message : "保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
   return (
     <article className="text-file-viewer">
-      <header><strong>{fileName}</strong><span>{fileName.toLowerCase().endsWith(".json") ? "JSON" : "文本"}</span></header>
-      <pre>{formatTextPreview(fileName, content)}</pre>
+      <header><strong>{fileName}</strong><span>{isMarkdown ? "Markdown" : fileName.toLowerCase().endsWith(".json") ? "JSON" : "文本"}</span><div className="text-file-actions">{editableAllowed ? <button className="secondary-button" type="button" onClick={() => setEditing((current) => !current)}>{editing ? "取消编辑" : "编辑"}</button> : null}{editing ? <button className="primary-button" type="button" onClick={() => void save()} disabled={saving}>{saving ? "保存中" : "保存"}</button> : null}</div></header>
+      {editing ? <textarea className="text-file-editor" value={loadedContent} onChange={(event) => setContent(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void save(); } }} /> : isMarkdown ? <MarkdownPreview content={loadedContent} /> : <pre>{formatTextPreview(fileName, loadedContent)}</pre>}
+      {saveMessage ? <small className="text-file-save-message">{saveMessage}</small> : null}
     </article>
   );
+}
+
+function MarkdownPreview({ content }: { content: string }) {
+  return <div className="markdown-rendered"><ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown></div>;
+}
+
+function EditableTablePreview({ preview, projectId, relativePath, editableAllowed, onSaved }: { preview: TablePreview | null; projectId: string; relativePath: string | null; editableAllowed: boolean; onSaved: (preview: TablePreview) => void }) {
+  const [editing, setEditing] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
+  if (!preview) return null;
+  const loadedPreview = preview;
+  async function saveCell(rowIndex: number, column: string, value: string) {
+    if (!relativePath) return;
+    setSaving(true);
+    setSaveError(null);
+    try {
+      const columnType = loadedPreview.columns.find((item) => item.name === column)?.inferredType;
+      const converted = value === "" ? null : columnType === "integer" ? Number.parseInt(value, 10) : columnType === "number" ? Number.parseFloat(value) : columnType === "boolean" ? ["true", "1", "是"].includes(value.toLowerCase()) : value;
+      onSaved(await workspaceClient.updateProjectTableCell(projectId, relativePath, { rowIndex, column, value: converted }));
+    } catch (error: unknown) {
+      setSaveError(error instanceof Error ? error.message : "单元格保存失败");
+    } finally {
+      setSaving(false);
+    }
+  }
+  return <><div className="table-edit-toolbar">{editableAllowed ? <button className={editing ? "primary-button" : "secondary-button"} type="button" onClick={() => setEditing((current) => !current)}>{editing ? "保存并结束" : "编辑表格"}</button> : <span>只读预览</span>}{saveError ? <span className="table-save-error">{saveError}</span> : saving ? <span>保存中</span> : editing ? <span>按回车保存当前单元格</span> : null}</div><div className="data-table-shell"><table><thead><tr>{preview.columns.map((column) => <th key={column.name} className={isNumericType(column.inferredType) ? "number-cell" : undefined}>{column.name}</th>)}</tr></thead><tbody>{preview.rows.map((row, rowIndex) => <tr key={rowIndex}>{preview.columns.map((column) => <td key={column.name} className={isNumericType(column.inferredType) ? "number-cell" : undefined} contentEditable={editing} suppressContentEditableWarning onKeyDown={(event) => { if (event.key === "Enter") { event.preventDefault(); (event.currentTarget as HTMLElement).blur(); } }} onBlur={(event) => { if (editing) void saveCell(rowIndex, column.name, event.currentTarget.textContent ?? ""); }}>{formatCell(row[column.name])}</td>)}</tr>)}</tbody></table></div></>;
 }
 
 type PdfDocumentProxy = import("pdfjs-dist").PDFDocumentProxy;
@@ -2262,7 +2285,7 @@ function findProjectFile(nodes: ProjectFileNode[], relativePath: string): Projec
 }
 
 function isTextPreviewFile(fileName: string): boolean {
-  return [".csv", ".tsv", ".json", ".md", ".markdown", ".txt", ".yaml", ".yml", ".log", ".toml", ".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".html"].some((suffix) => fileName.toLowerCase().endsWith(suffix));
+  return [".json", ".md", ".markdown", ".txt", ".yaml", ".yml", ".log", ".toml", ".py", ".ts", ".tsx", ".js", ".jsx", ".css", ".html"].some((suffix) => fileName.toLowerCase().endsWith(suffix));
 }
 
 function formatTextPreview(fileName: string, content: string): string {

@@ -2158,6 +2158,33 @@ textarea:focus-visible {
   scrollbar-width: thin;
 }
 
+.table-edit-toolbar {
+  display: flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.table-save-error {
+  color: #a33f37;
+}
+
+.data-table-shell td[contenteditable="true"] {
+  outline: 1px solid transparent;
+  background: #fffdf2;
+  cursor: text;
+}
+
+.data-table-shell td[contenteditable="true"]:focus {
+  outline-color: var(--accent);
+  background: #ffffff;
+}
+
 .data-quality-section {
   margin-bottom: 4px;
 }
@@ -2604,6 +2631,78 @@ tbody tr:hover {
   font-size: 11px;
   line-height: 1.65;
 }
+
+.text-file-viewer header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--line);
+}
+
+.text-file-viewer header > span {
+  color: var(--muted);
+  font-size: 10px;
+}
+
+.text-file-actions {
+  display: flex;
+  margin-left: auto;
+  gap: 6px;
+}
+
+.text-file-editor {
+  display: block;
+  width: 100%;
+  min-height: 420px;
+  padding: 16px;
+  border: 0;
+  outline: 0;
+  resize: vertical;
+  background: var(--surface);
+  color: var(--text);
+  font-family: Consolas, "Microsoft YaHei", monospace;
+  font-size: 11px;
+  line-height: 1.65;
+}
+
+.text-file-save-message {
+  display: block;
+  padding: 0 16px 10px;
+  color: var(--accent);
+}
+
+.markdown-rendered {
+  min-height: 300px;
+  padding: 16px 20px 24px;
+  color: var(--text);
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.markdown-rendered h2,
+.markdown-rendered h3,
+.markdown-rendered h4 {
+  margin: 16px 0 7px;
+  line-height: 1.35;
+}
+
+.markdown-rendered h2 { font-size: 19px; }
+.markdown-rendered h3 { font-size: 16px; }
+.markdown-rendered h4 { font-size: 14px; }
+.markdown-rendered p { margin: 7px 0; }
+.markdown-rendered ul,
+.markdown-rendered ol { margin: 8px 0; padding-left: 24px; }
+.markdown-rendered li { margin: 3px 0; }
+.markdown-rendered code { padding: 2px 4px; border-radius: 3px; background: #edf1f0; font-family: Consolas, monospace; }
+.markdown-rendered pre { padding: 10px 12px; overflow: auto; border-radius: 4px; background: #f1f3f3; }
+.markdown-rendered pre code { padding: 0; background: transparent; }
+.markdown-rendered blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--accent); color: var(--muted); }
+.markdown-rendered table { width: 100%; min-width: 0; margin: 12px 0; }
+.markdown-rendered th,
+.markdown-rendered td { height: 30px; }
+.markdown-rendered a { color: var(--accent); }
 
 .document-ocr-state {
   display: flex;

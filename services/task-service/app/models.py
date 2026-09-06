@@ -93,6 +93,16 @@ class ProjectFileNode(ApiModel):
     children: list["ProjectFileNode"] = Field(default_factory=list)
 
 
+class ProjectTextUpdate(ApiModel):
+    content: str = Field(max_length=10_000_000)
+
+
+class TableCellUpdate(ApiModel):
+    row_index: int = Field(ge=0)
+    column: str = Field(min_length=1, max_length=512)
+    value: str | int | float | bool | None
+
+
 class PreviewColumn(ApiModel):
     name: str
     inferred_type: str

@@ -133,6 +133,39 @@ def test_project_table_file_preview_does_not_download(tmp_path: Path) -> None:
     assert "inline" in content.headers["content-disposition"]
 
 
+def test_project_table_cell_update_persists_and_refreshes_preview(tmp_path: Path) -> None:
+    project_path = tmp_path / "table-edit-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        source_path = project_path / "source" / "editable.csv"
+        source_path.write_text("名称,数值\n甲,1\n乙,2\n", encoding="utf-8")
+        response = client.patch(
+            f"/api/projects/{project['id']}/files/table-cell",
+            params={"path": "source/editable.csv"},
+            json={"rowIndex": 1, "column": "数值", "value": 9},
+        )
+
+    assert response.status_code == 200
+    assert response.json()["rows"][1]["数值"] == "9"
+    assert "乙,9" in source_path.read_text(encoding="utf-8")
+
+
+def test_project_markdown_update_uses_utf8(tmp_path: Path) -> None:
+    project_path = tmp_path / "markdown-edit-project"
+    with create_test_client(tmp_path) as client:
+        project = create_project(client, project_path)
+        note_path = project_path / "source" / "说明.md"
+        note_path.write_text("旧内容", encoding="utf-8")
+        response = client.put(
+            f"/api/projects/{project['id']}/files/content",
+            params={"path": "source/说明.md"},
+            json={"content": "# 新内容\n\n中文编码正常"},
+        )
+
+    assert response.status_code == 200
+    assert note_path.read_text(encoding="utf-8") == "# 新内容\n\n中文编码正常"
+
+
 def test_health_endpoint(tmp_path: Path) -> None:
     with create_test_client(tmp_path) as client:
         response = client.get("/api/health")
@@ -481,6 +514,9 @@ def test_project_tree_includes_nested_and_hidden_entries(tmp_path: Path) -> None
         hidden_directory.mkdir()
         (hidden_directory / "state.json").write_text("{}", encoding="utf-8")
         (project_path / ".gitkeep").write_text("", encoding="utf-8")
+        (project_path / ".git").mkdir()
+        (project_path / "AGENTS.md").write_text("system", encoding="utf-8")
+        (project_path / "openclaw.json").write_text("{}", encoding="utf-8")
         nested_directory = project_path / "source" / "季度报表"
         nested_directory.mkdir()
         (nested_directory / "说明.txt").write_text("项目说明", encoding="utf-8")
@@ -496,6 +532,7 @@ def test_project_tree_includes_nested_and_hidden_entries(tmp_path: Path) -> None
 
     assert complete_tree.status_code == 200
     assert all(node["name"] != ".gitkeep" for node in complete_tree.json())
+    assert all(node["name"] not in {".git", "AGENTS.md", "openclaw.json"} for node in complete_tree.json())
     assert complete_tree.json()[0]["name"] == ".workspace-cache"
     assert complete_tree.json()[0]["hidden"] is True
     source = next(node for node in complete_tree.json() if node["name"] == "source")

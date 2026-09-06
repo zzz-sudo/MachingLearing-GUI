@@ -14,6 +14,7 @@ import type {
   ProjectFileNode,
   ServiceHealth,
   TablePreview,
+  TableCellUpdate,
   Job,
   TrainingCreate,
   TrainingResult,
@@ -59,6 +60,22 @@ export class LocalWorkspaceClient {
   async registerProjectFile(projectId: string, relativePath: string): Promise<ImportResult> {
     const query = new URLSearchParams({ path: relativePath });
     return this.request<ImportResult>(`/projects/${projectId}/files/register?${query.toString()}`, { method: "POST" });
+  }
+
+  async updateProjectFile(projectId: string, relativePath: string, content: string): Promise<void> {
+    await this.request(`/projects/${projectId}/files/content?path=${encodeURIComponent(relativePath)}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content }),
+    });
+  }
+
+  async updateProjectTableCell(projectId: string, relativePath: string, update: TableCellUpdate): Promise<TablePreview> {
+    return this.request<TablePreview>(`/projects/${projectId}/files/table-cell?path=${encodeURIComponent(relativePath)}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(update),
+    });
   }
 
   async getDocument(assetId: string): Promise<DocumentParseResult> {

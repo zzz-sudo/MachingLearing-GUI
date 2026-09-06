@@ -261,7 +261,14 @@ export type DatasetVersion = {
   parquetRelativePath: string;
   rowCount: number;
   columns: DatasetColumnSpec[];
+  missingValueStrategy?: "keep" | "median" | "mode";
   createdAt: string;
+};
+
+export type TableCellUpdate = {
+  rowIndex: number;
+  column: string;
+  value: string | number | boolean | null;
 };
 
 export type OpenClawChatMessage = {
